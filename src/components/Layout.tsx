@@ -1,58 +1,305 @@
-import clsx from 'clsx'
-import { KeyRound, LayoutGrid, LogOut, Users } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import clsx from 'clsx'
+import {
+  ChevronDown,
+  ExternalLink,
+  Folder,
+  KeyRound,
+  LayoutGrid,
+  LogOut,
+  Search,
+  Share2,
+  Users,
+  X,
+} from 'lucide-react'
 import { useAuth } from '../lib/auth'
+import { useTabs } from '../lib/tabs'
+import { fetchCredentials, fetchPanels, fetchPendingPanelShares } from '../lib/queries'
 import { supabase } from '../lib/supabase'
+import { Badge } from './ui'
+import type { Panel } from '../lib/types'
 
 export default function Layout() {
   const { user, isSuperadmin } = useAuth()
+  const { tabs, activeTabId, openPanelTab, closeTab, switchTab } = useTabs()
   const navigate = useNavigate()
 
-  const links: { to: string; label: string; icon: typeof LayoutGrid; end?: boolean }[] = [
-    { to: '/', label: 'Mis paneles', icon: LayoutGrid, end: true },
+  // Desplegable de paneles en el Header
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [panelSearch, setPanelSearch] = useState('')
+  const dropdownRef = useRef<HTMLDivElement | null>(null)
+
+  const panelsQuery = useQuery({ queryKey: ['panels'], queryFn: fetchPanels })
+  const credsQuery = useQuery({ queryKey: ['credentials'], queryFn: fetchCredentials })
+  const pendingSharesQuery = useQuery({
+    queryKey: ['pending-panel-shares'],
+    queryFn: fetchPendingPanelShares,
+  })
+
+  const panels = panelsQuery.data ?? []
+  const credentials = credsQuery.data ?? []
+  const pendingSharesCount = (pendingSharesQuery.data ?? []).length
+  const credPanelIds = useMemo(() => new Set(credentials.map((c) => c.panel_id)), [credentials])
+
+  // Cerrar desplegable al hacer clic fuera
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false)
+      }
+    }
+    if (dropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [dropdownOpen])
+
+  // Paneles agrupados por categoría para el desplegable
+  const groupedPanels = useMemo(() => {
+    const q = panelSearch.trim().toLowerCase()
+    const filtered = panels.filter((p) => {
+      if (!q) return true
+      return (
+        p.name.toLowerCase().includes(q) ||
+        p.url.toLowerCase().includes(q) ||
+        (p.category || '').toLowerCase().includes(q)
+      )
+    })
+
+    const groups: Record<string, Panel[]> = {}
+    for (const p of filtered) {
+      const cat = p.category || 'General'
+      if (!groups[cat]) groups[cat] = []
+      groups[cat].push(p)
+    }
+    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b))
+  }, [panels, panelSearch])
+
+  const links = [
+    { to: '/', label: 'Categorías', icon: LayoutGrid, end: true },
+    {
+      to: '/shares',
+      label: 'Compartir',
+      icon: Share2,
+      badge: pendingSharesCount > 0 ? pendingSharesCount : undefined,
+    },
     { to: '/vault', label: 'Bóveda', icon: KeyRound },
   ]
-  if (isSuperadmin) links.push({ to: '/admin/users', label: 'Usuarios', icon: Users })
+  if (isSuperadmin) links.push({ to: '/admin/users', label: 'Usuarios', icon: Users, badge: undefined })
+
+  function handleSelectPanelFromDropdown(p: Panel) {
+    setDropdownOpen(false)
+    setPanelSearch('')
+    openPanelTab(p)
+  }
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-900/80 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-3">
-          <NavLink to="/" className="flex items-center gap-2 font-semibold">
-            <span className="grid h-7 w-7 place-items-center rounded bg-sky-500/20 text-sm text-sky-300">S</span>
-            SuperPaneles
+    <div className="flex min-h-screen flex-col bg-slate-950 text-slate-100">
+      {/* Header Principal */}
+      <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-900/90 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-2.5">
+          {/* Logo & Marca */}
+          <NavLink to="/" className="flex items-center gap-2 font-semibold shrink-0">
+            <span className="grid h-7 w-7 place-items-center rounded bg-sky-500/20 text-sm text-sky-300 font-bold">
+              S
+            </span>
+            <span className="hidden sm:inline">SuperPaneles</span>
           </NavLink>
-          <nav className="flex items-center gap-1">
-            {links.map(({ to, label, icon: Icon, end }) => (
+
+          {/* DESPLEGABLE DE PANELES EN EL HEADER */}
+          <div className="relative" ref={dropdownRef}>
+            <button
+              onClick={() => setDropdownOpen((prev) => !prev)}
+              className={clsx(
+                'flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs sm:text-sm font-medium transition-colors',
+                dropdownOpen
+                  ? 'border-sky-500 bg-sky-500/15 text-sky-200'
+                  : 'border-slate-700 bg-slate-800/80 text-slate-200 hover:border-slate-600 hover:bg-slate-800'
+              )}
+            >
+              <LayoutGrid size={15} className="text-sky-400" />
+              <span>Paneles ({panels.length})</span>
+              <ChevronDown size={14} className={clsx('transition-transform duration-200', dropdownOpen && 'rotate-180')} />
+            </button>
+
+            {/* Menú Desplegable */}
+            {dropdownOpen && (
+              <div className="absolute left-0 top-full mt-1.5 w-80 sm:w-96 rounded-xl border border-slate-800 bg-slate-900 p-2 shadow-2xl z-50 animate-in fade-in-50 zoom-in-95">
+                <div className="relative mb-2">
+                  <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <input
+                    type="text"
+                    autoFocus
+                    value={panelSearch}
+                    onChange={(e) => setPanelSearch(e.target.value)}
+                    placeholder="Buscar por nombre, sistema o URL…"
+                    className="w-full rounded-lg border border-slate-800 bg-slate-950 py-1.5 pl-8 pr-3 text-xs text-slate-200 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none"
+                  />
+                </div>
+
+                <div className="max-h-80 overflow-y-auto space-y-3 pr-1">
+                  {panels.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-slate-500">
+                      No hay paneles dados de alta.
+                    </div>
+                  ) : groupedPanels.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-slate-500">
+                      Ningún panel coincide con la búsqueda.
+                    </div>
+                  ) : (
+                    groupedPanels.map(([category, catPanels]) => (
+                      <div key={category} className="space-y-1">
+                        <div className="flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
+                          <Folder size={12} className="text-sky-400" />
+                          <span>{category}</span>
+                          <span className="text-[10px] text-slate-600">({catPanels.length})</span>
+                        </div>
+                        <div className="space-y-0.5">
+                          {catPanels.map((p) => (
+                            <button
+                              key={p.id}
+                              onClick={() => handleSelectPanelFromDropdown(p)}
+                              className="group flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors hover:bg-slate-800"
+                            >
+                              <div className="flex min-w-0 items-center gap-2">
+                                {p.logo_url ? (
+                                  <img src={p.logo_url} alt="" className="h-5 w-5 rounded bg-slate-800 object-cover" />
+                                ) : (
+                                  <span className="grid h-5 w-5 shrink-0 place-items-center rounded bg-slate-800 text-[10px] font-bold text-slate-300">
+                                    {p.name.slice(0, 1).toUpperCase()}
+                                  </span>
+                                )}
+                                <div className="min-w-0">
+                                  <p className="truncate font-medium text-slate-200 group-hover:text-white">{p.name}</p>
+                                  <p className="truncate text-[10px] text-slate-500">{p.url}</p>
+                                </div>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-1.5">
+                                {p.is_shared && <Badge tone="violet">Compartido</Badge>}
+                                {credPanelIds.has(p.id) && (
+                                  <span title="Credencial guardada" className="text-emerald-400">
+                                    <KeyRound size={11} />
+                                  </span>
+                                )}
+                                <ExternalLink size={12} className="text-slate-600 group-hover:text-sky-400" />
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Navegación general */}
+          <nav className="flex items-center gap-1 ml-2">
+            {links.map(({ to, label, icon: Icon, end, badge }) => (
               <NavLink
                 key={to}
                 to={to}
                 end={end}
                 className={({ isActive }) =>
                   clsx(
-                    'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm',
+                    'relative flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs sm:text-sm font-medium transition-colors',
                     isActive ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-200'
                   )
                 }
               >
-                <Icon size={16} /> {label}
+                <Icon size={15} />
+                <span className="hidden md:inline">{label}</span>
+                {badge !== undefined && (
+                  <span className="grid h-4 min-w-4 place-items-center rounded-full bg-sky-500 px-1 text-[10px] font-bold text-white">
+                    {badge}
+                  </span>
+                )}
               </NavLink>
             ))}
           </nav>
-          <div className="ml-auto flex items-center gap-3 text-sm text-slate-400">
-            <span className="hidden max-w-[220px] truncate sm:block">{user?.email}</span>
+
+          {/* Usuario y Salir */}
+          <div className="ml-auto flex items-center gap-2 sm:gap-3 text-xs sm:text-sm text-slate-400">
+            <span className="hidden max-w-[200px] truncate lg:block">{user?.email}</span>
             <button
-              className="btn-ghost"
+              className="btn-ghost text-xs px-2 py-1.5"
               onClick={async () => {
                 await supabase.auth.signOut()
                 navigate('/login')
               }}
             >
-              <LogOut size={16} /> Salir
+              <LogOut size={14} /> <span className="hidden sm:inline">Salir</span>
             </button>
           </div>
         </div>
+
+        {/* BARRA DE PESTAÑAS (TAB BAR) */}
+        <div className="border-t border-slate-800/80 bg-slate-950/90 px-4 py-1">
+          <div className="mx-auto flex max-w-7xl items-center gap-1.5 overflow-x-auto no-scrollbar">
+            {tabs.map((tab) => {
+              const isActive = activeTabId === tab.id
+              return (
+                <div
+                  key={tab.id}
+                  onClick={() => switchTab(tab.id)}
+                  className={clsx(
+                    'group flex max-w-[220px] shrink-0 cursor-pointer items-center gap-2 rounded-t-md border-b-2 px-3 py-1.5 text-xs transition-all select-none',
+                    isActive
+                      ? 'border-sky-500 bg-slate-800/90 text-white font-medium shadow-sm'
+                      : 'border-transparent bg-slate-900/60 text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                  )}
+                  title={tab.title}
+                >
+                  {tab.panelId ? (
+                    tab.logo_url ? (
+                      <img src={tab.logo_url} alt="" className="h-3.5 w-3.5 rounded object-cover" />
+                    ) : (
+                      <span className="grid h-3.5 w-3.5 place-items-center rounded bg-slate-700 text-[9px] font-bold text-slate-300">
+                        {tab.title.slice(0, 1).toUpperCase()}
+                      </span>
+                    )
+                  ) : tab.id === 'dashboard' ? (
+                    <LayoutGrid size={13} className={isActive ? 'text-sky-400' : 'text-slate-500'} />
+                  ) : tab.id === 'vault' ? (
+                    <KeyRound size={13} className={isActive ? 'text-sky-400' : 'text-slate-500'} />
+                  ) : tab.id === 'shares' ? (
+                    <Share2 size={13} className={isActive ? 'text-sky-400' : 'text-slate-500'} />
+                  ) : (
+                    <Users size={13} className={isActive ? 'text-sky-400' : 'text-slate-500'} />
+                  )}
+
+                  <span className="truncate">{tab.title}</span>
+
+                  {tab.category && (
+                    <span className="hidden sm:inline text-[10px] text-slate-500">
+                      • {tab.category}
+                    </span>
+                  )}
+
+                  {tab.closable && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        closeTab(tab.id)
+                      }}
+                      className="ml-1 rounded p-0.5 text-slate-500 hover:bg-slate-700 hover:text-slate-200"
+                      title="Cerrar pestaña"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
       </header>
+
+      {/* Contenido de la vista activa */}
       <main className="flex-1">
         <Outlet />
       </main>

@@ -1,8 +1,8 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ClipboardCheck, ClipboardCopy, Eye, EyeOff, KeyRound, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ClipboardCheck, ClipboardCopy, Eye, EyeOff, Folder, KeyRound, Pencil, Plus, Trash2, Users } from 'lucide-react'
 import { deleteCredential, fetchCredentials, fetchPanels, revealCredential, upsertCredential } from '../lib/queries'
-import { Button, EmptyState, Field, Input, Modal, Select } from '../components/ui'
+import { Badge, Button, EmptyState, Field, Input, Modal, Select } from '../components/ui'
 import type { Panel, PanelCredential } from '../lib/types'
 
 interface FormState {
@@ -38,7 +38,7 @@ export default function Vault() {
   }, [panels, credentials])
 
   function openCreate(panelId = '') {
-    setForm({ ...emptyForm, panel_id: panelId })
+    setForm({ ...emptyForm, panel_id: panelId || panels[0]?.id || '' })
     setError('')
     setFormOpen(true)
   }
@@ -132,7 +132,9 @@ export default function Vault() {
       <div className="flex flex-wrap items-center gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Bóveda</h1>
-          <p className="text-sm text-slate-400">Credenciales privadas, cifradas en el servidor</p>
+          <p className="text-sm text-slate-400">
+            Credenciales privadas y aisladas, cifradas en el servidor (incluso para paneles compartidos)
+          </p>
         </div>
         <Button variant="primary" className="ml-auto" onClick={() => openCreate(panels[0]?.id ?? '')} disabled={panels.length === 0}>
           <Plus size={16} /> Nueva credencial
@@ -148,8 +150,18 @@ export default function Vault() {
       <div className="space-y-5">
         {grouped.map(({ panel, creds }) => (
           <section key={panel.id} className="card overflow-hidden">
-            <header className="flex items-center gap-2 border-b border-slate-800 px-4 py-2.5 text-sm">
-              <span className="font-medium">{panel.name}</span>
+            <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-4 py-2.5 text-sm bg-slate-950/40">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-slate-100">{panel.name}</span>
+                <Badge tone="slate">
+                  <Folder size={11} /> {panel.category || 'General'}
+                </Badge>
+                {panel.is_shared && (
+                  <Badge tone="violet">
+                    <Users size={11} /> Compartido por {panel.shared_by_name || 'otro usuario'}
+                  </Badge>
+                )}
+              </div>
               <span className="text-xs text-slate-500">{creds.length === 1 ? '1 cuenta' : `${creds.length} cuentas`}</span>
             </header>
             <ul className="divide-y divide-slate-800">
@@ -197,7 +209,7 @@ export default function Vault() {
               </option>
               {panels.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name}
+                  {p.name} ({p.category || 'General'}) {p.is_shared ? '• Compartido' : ''}
                 </option>
               ))}
             </Select>

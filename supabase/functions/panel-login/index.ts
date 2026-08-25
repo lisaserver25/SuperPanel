@@ -1,10 +1,9 @@
 // ============================================================================
-// panel-login: login programático contra el Supabase de un panel propio.
+// panel-login: login programático contra el Supabase de un panel propio o compartido.
 // Entrada:  { credential_id }
 // Salida:   { access_token, refresh_token, expires_at, expires_in }
-// Seguridad: verify_jwt=true; SOLO el dueño de la credencial puede usarla
-// (cada usuario añade sus propios paneles y credenciales).
-// Autocontenida (sin _shared) para poder pegarla también desde el Dashboard.
+// Seguridad: verify_jwt=true; el dueño de la credencial o usuarios con acceso
+// al panel compartido aceptado pueden usarla.
 // ============================================================================
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
 
@@ -58,13 +57,28 @@ Deno.serve(async (req) => {
 
   const { data: cred, error: credError } = await admin
     .from('super_panel_credentials')
-    .select('id, owner_id, username, super_panels(id, name, kind, supabase_url, supabase_anon_key)')
+    .select('id, owner_id, panel_id, username, super_panels(id, name, kind, supabase_url, supabase_anon_key)')
     .eq('id', credentialId)
     .maybeSingle()
   if (credError || !cred) return json({ error: 'credential_not_found' }, 404)
 
-  // Solo el dueño de la credencial (modelo personal, sin excepciones)
-  if (cred.owner_id !== user.id) return json({ error: 'forbidden' }, 403)
+  // Comprobar si el usuario es dueño de la credencial O tiene el panel compartido aceptado
+  const isOwner = cred.owner_id === user.id
+  let isSharedUser = false
+
+  if (!isOwner && cred.panel_id) {
+    const userEmail = (user.email ?? '').toLowerCase()
+    const { data: share } = await admin
+      .from('super_panel_shares')
+      .select('id')
+      .eq('panel_id', cred.panel_id)
+      .eq('status', 'accepted')
+      .or(`shared_with_id.eq.${user.id},shared_with_email.ilike.${userEmail}`)
+      .maybeSingle()
+    if (share) isSharedUser = true
+  }
+
+  if (!isOwner && !isSharedUser) return json({ error: 'forbidden' }, 403)
 
   const panel = (cred.super_panels ?? null) as PanelRow | null
   if (!panel || panel.kind !== 'own' || !panel.supabase_url || !panel.supabase_anon_key) {
