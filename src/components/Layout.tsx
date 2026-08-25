@@ -1,17 +1,18 @@
 import clsx from 'clsx'
-import { KeyRound, LayoutGrid, LogOut } from 'lucide-react'
+import { KeyRound, LayoutGrid, LogOut, Users } from 'lucide-react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 
 export default function Layout() {
-  const { user } = useAuth()
+  const { user, isSuperadmin } = useAuth()
   const navigate = useNavigate()
 
   const links: { to: string; label: string; icon: typeof LayoutGrid; end?: boolean }[] = [
     { to: '/', label: 'Mis paneles', icon: LayoutGrid, end: true },
     { to: '/vault', label: 'Bóveda', icon: KeyRound },
   ]
+  if (isSuperadmin) links.push({ to: '/admin/users', label: 'Usuarios', icon: Users })
 
   return (
     <div className="flex min-h-screen flex-col">

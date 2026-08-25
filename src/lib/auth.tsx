@@ -10,6 +10,7 @@ interface AuthState {
   session: Session | null
   user: User | null
   profile: Profile | null
+  isSuperadmin: boolean
 }
 
 const AuthContext = createContext<AuthState>({
@@ -17,6 +18,7 @@ const AuthContext = createContext<AuthState>({
   session: null,
   user: null,
   profile: null,
+  isSuperadmin: false,
 })
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -47,6 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     session,
     user: session?.user ?? null,
     profile: profileQuery.data ?? null,
+    isSuperadmin: profileQuery.data?.role === 'superadmin',
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

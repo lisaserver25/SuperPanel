@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { Panel, PanelCredential, Profile } from './types'
+import type { AdminUser, Panel, PanelCredential, Profile } from './types'
 
 const PANEL_COLUMNS =
   'id, owner_id, name, url, kind, logo_url, notes, sort_order, supabase_url, supabase_anon_key, created_at, updated_at'
@@ -125,4 +125,54 @@ export async function savePanel(
 export async function deletePanel(id: string): Promise<void> {
   const { error } = await supabase.from('super_panels').delete().eq('id', id)
   if (error) throw error
+}
+
+// --- gestión de usuarios (solo superadmins, vía edge function admin-users) ---
+
+async function adminUsersCall<T>(body: Record<string, unknown>): Promise<T> {
+  const { data, error } = await supabase.functions.invoke<T>('admin-users', { body })
+  if (error) {
+    const ctx = (error as { context?: Response }).context
+    let detail = error.message
+    if (ctx) {
+      try {
+        const payload = (await ctx.json()) as { detail?: string; error?: string }
+        detail = payload.detail ?? payload.error ?? detail
+      } catch {
+        /* ignore */
+      }
+    }
+    throw new Error(detail)
+  }
+  return data as T
+}
+
+export async function adminListUsers(): Promise<AdminUser[]> {
+  const data = await adminUsersCall<{ users: AdminUser[] }>({ action: 'list' })
+  return data?.users ?? []
+}
+
+export async function adminCreateUser(input: {
+  email: string
+  password: string
+  full_name?: string
+  role: 'superadmin' | 'user'
+}): Promise<void> {
+  await adminUsersCall({ action: 'create', ...input })
+}
+
+export async function adminUpdateUser(input: {
+  id: string
+  full_name?: string
+  role?: 'superadmin' | 'user'
+}): Promise<void> {
+  await adminUsersCall({ action: 'update', ...input })
+}
+
+export async function adminSetPassword(id: string, password: string): Promise<void> {
+  await adminUsersCall({ action: 'set_password', id, password })
+}
+
+export async function adminDeleteUser(id: string): Promise<void> {
+  await adminUsersCall({ action: 'delete', id })
 }

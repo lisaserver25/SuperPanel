@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, ClipboardCheck, ClipboardCopy, ExternalLink, Eye, KeyRound, RefreshCw } from 'lucide-react'
+import { ClipboardCheck, ClipboardCopy, ExternalLink, KeyRound, RefreshCw } from 'lucide-react'
 import clsx from 'clsx'
 import { fetchCredentials, fetchPanel, panelLogin, revealCredential } from '../lib/queries'
 import { Badge, Button, Select } from '../components/ui'
@@ -44,11 +44,7 @@ export default function PanelFrame() {
   const [status, setStatus] = useState<LoginStatus>('idle')
   const [message, setMessage] = useState('')
   const [copied, setCopied] = useState('')
-  const [embedThird, setEmbedThird] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
-
-  // Los paneles propios siempre van embebidos; los de terceros, bajo demanda
-  const showFrame = isOwn || embedThird
 
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const tokensRef = useRef<{ access_token: string; refresh_token: string } | null>(null)
@@ -89,7 +85,7 @@ export default function PanelFrame() {
 
   // Sondeo sp:ping hasta que el puente conteste (cubre carreras de carga)
   useEffect(() => {
-    if (!isOwn || !panelOrigin || !showFrame) return
+    if (!isOwn || !panelOrigin) return
     bridgeReadyRef.current = false
     let attempts = 0
     const timer = window.setInterval(() => {
@@ -102,7 +98,7 @@ export default function PanelFrame() {
       win.postMessage({ source: 'superpaneles-hub', type: 'sp:ping' }, panelOrigin)
     }, 600)
     return () => window.clearInterval(timer)
-  }, [isOwn, panelOrigin, showFrame, reloadKey, credentialId])
+  }, [isOwn, panelOrigin, reloadKey, credentialId])
 
   // Auto-login: pedir tokens a panel-login e inyectarlos vía handshake
   useEffect(() => {
@@ -188,12 +184,14 @@ export default function PanelFrame() {
 
   return (
     <div className="flex h-[calc(100vh-3.6rem)] flex-col">
-      {/* Toolbar */}
+      {/* Toolbar: todo en una línea, nombre del panel destacado */}
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 bg-slate-900/60 px-4 py-2">
-        <Link to="/" className="mr-1 text-sm text-slate-400 hover:text-slate-200">
+        <Link to="/" className="text-lg text-slate-400 hover:text-slate-200" title="Volver a mis paneles">
           ←
         </Link>
-        <span className="font-medium">{panel.name}</span>
+        <h1 className="max-w-[28ch] truncate text-lg font-semibold leading-none" title={panel.name}>
+          {panel.name}
+        </h1>
         <Badge tone={panel.kind === 'own' ? 'sky' : 'violet'}>{panel.kind === 'own' ? 'Propio' : 'Tercero'}</Badge>
 
         {selected && (
@@ -229,25 +227,19 @@ export default function PanelFrame() {
         )}
 
         <div className="ml-auto flex items-center gap-2">
-          {showFrame ? (
-            <Button className="px-2 py-1 text-xs" onClick={reloadFrame}>
-              <RefreshCw size={13} /> Recargar
-            </Button>
-          ) : (
-            <Button className="px-2 py-1 text-xs" onClick={() => setEmbedThird(true)}>
-              <Eye size={13} /> Intentar embebido
-            </Button>
-          )}
+          <Button className="px-2 py-1 text-xs" onClick={reloadFrame}>
+            <RefreshCw size={13} /> Recargar
+          </Button>
           <Button className="px-2 py-1 text-xs" onClick={() => window.open(panel.url, '_blank', 'noopener')}>
-            <ExternalLink size={13} /> Abrir en pestaña nueva
+            <ExternalLink size={13} /> Pestaña nueva
           </Button>
         </div>
       </div>
 
-      {/* Estado */}
-      {(isOwn || status === 'error') && (
-        <div className="flex flex-wrap items-center gap-2 px-4 py-1.5 text-xs">
-          {isOwn && !selected && (
+      {/* Estado del auto-login (solo paneles propios) */}
+      {isOwn && (status !== 'idle' || message) && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-800/60 px-4 py-1 text-xs">
+          {!selected && (
             <span className="text-slate-400">
               No tienes credenciales guardadas de este panel:{' '}
               <Link to="/vault" className="text-sky-400 hover:underline">
@@ -256,7 +248,7 @@ export default function PanelFrame() {
               para el auto-login (también puedes iniciar sesión manualmente dentro del marco).
             </span>
           )}
-          {isOwn && selected && status !== 'error' && status !== 'idle' && (
+          {selected && status !== 'error' && status !== 'idle' && (
             <span
               className={clsx(
                 status === 'done' ? 'text-emerald-400' : status === 'requesting' || status === 'sent' ? 'text-sky-300' : 'text-slate-400'
@@ -266,38 +258,18 @@ export default function PanelFrame() {
             </span>
           )}
           {status === 'error' && <span className="text-red-400">Error: {message}</span>}
-          {!isOwn && showFrame && (
-            <span className="flex items-center gap-1 text-slate-400">
-              <AlertTriangle size={12} /> Si el panel de terceros bloquea el embebido, usa «Abrir en pestaña nueva» con las
-              credenciales copiadas.
-            </span>
-          )}
         </div>
       )}
 
-      {/* Marco */}
-      {showFrame ? (
-        <iframe
-          key={reloadKey}
-          ref={iframeRef}
-          src={panel.url}
-          title={panel.name}
-          className="flex-1 border-0 bg-white"
-          allow="clipboard-write"
-        />
-      ) : (
-        <div className="grid flex-1 place-items-center p-6 text-center text-sm text-slate-500">
-          <div className="max-w-md space-y-3">
-            <p>
-              Panel de terceros: copia usuario y contraseña desde la barra superior y ábrelo en una pestaña nueva. El
-              embebido es opcional porque muchos paneles de terceros lo bloquean.
-            </p>
-            <Button variant="primary" onClick={() => window.open(panel.url, '_blank', 'noopener')}>
-              <ExternalLink size={14} /> Abrir en pestaña nueva
-            </Button>
-          </div>
-        </div>
-      )}
+      {/* Marco: embebido por defecto para todos los paneles */}
+      <iframe
+        key={reloadKey}
+        ref={iframeRef}
+        src={panel.url}
+        title={panel.name}
+        className="min-h-0 flex-1 border-0 bg-white"
+        allow="clipboard-write"
+      />
     </div>
   )
 }
