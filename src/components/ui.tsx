@@ -51,17 +51,19 @@ export function Modal({
   onClose,
   title,
   children,
+  maxWidth = 'max-w-lg',
 }: {
   open: boolean
   onClose: () => void
   title: string
   children: ReactNode
+  maxWidth?: string
 }) {
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="card max-h-[90vh] w-full max-w-lg overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
-        <h2 className="mb-4 text-lg font-semibold">{title}</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className={clsx('card max-h-[92vh] w-full overflow-y-auto p-4 sm:p-5', maxWidth)} onClick={(e) => e.stopPropagation()}>
+        <h2 className="mb-3 text-base sm:text-lg font-semibold">{title}</h2>
         {children}
       </div>
     </div>

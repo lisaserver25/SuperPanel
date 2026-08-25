@@ -8,6 +8,8 @@ import {
   FolderEdit,
   FolderPlus,
   KeyRound,
+  LayoutGrid,
+  List,
   Pencil,
   Plus,
   Search,
@@ -25,12 +27,17 @@ import {
   respondPanelShare,
   updatePanelShareCategory,
 } from '../lib/queries'
+import {
+  getUserCustomCategories,
+  removeUserCustomCategory,
+  renameUserCustomCategory,
+  saveUserCustomCategory,
+} from '../lib/categories'
+import { useAuth } from '../lib/auth'
 import { Badge, Button, EmptyState, Field, Input, Modal } from '../components/ui'
 import { useTabs } from '../lib/tabs'
 import PanelFormModal from '../components/PanelFormModal'
 import type { Panel, PanelShare } from '../lib/types'
-
-type FilterKind = 'all' | 'own' | 'third' | 'shared'
 
 function hostname(url: string): string {
   try {
@@ -41,15 +48,34 @@ function hostname(url: string): string {
 }
 
 export default function Dashboard() {
+  const { user } = useAuth()
   const qc = useQueryClient()
   const { openPanelTab } = useTabs()
   const [search, setSearch] = useState('')
-  const [filterKind, setFilterKind] = useState<FilterKind>('all')
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => {
+    try {
+      return (localStorage.getItem('sp_view_mode') as 'list' | 'grid') || 'list'
+    } catch {
+      return 'list'
+    }
+  })
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Panel | null>(null)
   const [targetCatForNewPanel, setTargetCatForNewPanel] = useState<string>('General')
   const [error, setError] = useState('')
+
+  function handleSetViewMode(mode: 'list' | 'grid') {
+    setViewMode(mode)
+    try {
+      localStorage.setItem('sp_view_mode', mode)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // Versión local para forzar actualización de categorías
+  const [catVersion, setCatVersion] = useState(0)
 
   // Modal para crear nueva categoría directamente
   const [newCatModalOpen, setNewCatModalOpen] = useState(false)
@@ -77,23 +103,34 @@ export default function Dashboard() {
   // IDs de paneles con credencial guardada
   const credPanelIds = useMemo(() => new Set(credentials.map((c) => c.panel_id)), [credentials])
 
-  // Todas las categorías existentes
-  const existingCategories = useMemo(() => {
+  // Todas las categorías existentes (paneles + categorías personalizadas del usuario)
+  const allCategories = useMemo(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    catVersion
     const set = new Set<string>()
     for (const p of panels) {
       if (p.category) set.add(p.category)
     }
-    return Array.from(set).sort()
-  }, [panels])
+    const stored = getUserCustomCategories(user?.id)
+    for (const c of stored) {
+      if (c.trim()) set.add(c.trim())
+    }
+    if (set.size === 0) set.add('General')
+    return Array.from(set).sort((a, b) => a.localeCompare(b))
+  }, [panels, user?.id, catVersion])
+
+  // Categorías visibles en el filtro superior: solo las que tienen paneles, o la seleccionada actualmente
+  const filterCategories = useMemo(() => {
+    return allCategories.filter((cat) => {
+      const count = panels.filter((p) => (p.category || 'General') === cat).length
+      return count > 0 || selectedCategory === cat
+    })
+  }, [allCategories, panels, selectedCategory])
 
   // Filtrado de paneles
   const visiblePanels = useMemo(() => {
     const q = search.trim().toLowerCase()
     return panels.filter((p) => {
-      if (filterKind === 'own' && (p.kind !== 'own' || p.is_shared)) return false
-      if (filterKind === 'third' && (p.kind !== 'third' || p.is_shared)) return false
-      if (filterKind === 'shared' && !p.is_shared) return false
-
       const panelCat = p.category || 'General'
       if (selectedCategory !== 'all' && panelCat !== selectedCategory) return false
 
@@ -105,19 +142,35 @@ export default function Dashboard() {
         (p.notes || '').toLowerCase().includes(q)
       )
     })
-  }, [panels, filterKind, selectedCategory, search])
+  }, [panels, selectedCategory, search])
 
-  // Agrupación por categoría
+  // Agrupación por categoría (ocultando categorías vacías en la vista general y al buscar)
   const groupedByCategory = useMemo(() => {
     const groups: Record<string, Panel[]> = {}
+    
+    // Si estamos filtrando por una categoría concreta o viendo todas
+    const targetCategories = selectedCategory !== 'all' ? [selectedCategory] : allCategories
+
+    for (const cat of targetCategories) {
+      groups[cat] = []
+    }
+
     for (const p of visiblePanels) {
       const cat = p.category || 'General'
       if (!groups[cat]) groups[cat] = []
       groups[cat].push(p)
     }
-    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b))
-  }, [visiblePanels])
 
+    // Si estamos viendo "Todas" o realizando una búsqueda, ocultar categorías vacías
+    if (selectedCategory === 'all' || search.trim()) {
+      return Object.entries(groups)
+        .filter(([, catPanels]) => catPanels.length > 0)
+        .sort(([a], [b]) => a.localeCompare(b))
+    }
+
+    // Si se seleccionó una categoría específica, mantenerla visible para poder gestionarla
+    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b))
+  }, [visiblePanels, allCategories, selectedCategory, search])
   const loading = panelsQuery.isLoading || credsQuery.isLoading
 
   function openCreate(categoryName = 'General') {
@@ -132,10 +185,22 @@ export default function Dashboard() {
     setModalOpen(true)
   }
 
-  function handleCreateNewCategory(e: FormEvent) {
+  function handleCreateCategoryOnly(e: FormEvent) {
     e.preventDefault()
     const cat = newCatName.trim()
     if (!cat) return
+    saveUserCustomCategory(user?.id, cat)
+    setCatVersion((v) => v + 1)
+    setNewCatModalOpen(false)
+    setNewCatName('')
+    setSelectedCategory(cat)
+  }
+
+  function handleCreateCategoryAndOpenPanel() {
+    const cat = newCatName.trim()
+    if (!cat) return
+    saveUserCustomCategory(user?.id, cat)
+    setCatVersion((v) => v + 1)
     setNewCatModalOpen(false)
     setNewCatName('')
     openCreate(cat)
@@ -145,18 +210,42 @@ export default function Dashboard() {
     e.preventDefault()
     if (!renamingCategory) return
     const { oldName, newName } = renamingCategory
-    if (!newName.trim()) return
+    const trimmedNew = newName.trim()
+    if (!trimmedNew) return
 
     setError('')
     try {
-      await renameCategory(oldName, newName.trim())
+      renameUserCustomCategory(user?.id, oldName, trimmedNew)
+      setCatVersion((v) => v + 1)
+      await renameCategory(oldName, trimmedNew)
       setRenamingCategory(null)
       await qc.invalidateQueries({ queryKey: ['panels'] })
       if (selectedCategory === oldName) {
-        setSelectedCategory(newName.trim())
+        setSelectedCategory(trimmedNew)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo renombrar la categoría')
+    }
+  }
+
+  async function handleDeleteCategory(categoryName: string) {
+    const catPanels = panels.filter((p) => (p.category || 'General') === categoryName)
+    if (catPanels.length > 0) {
+      if (!window.confirm(`La categoría «${categoryName}» contiene ${catPanels.length} paneles. ¿Eliminar esta categoría y mover sus paneles a «General»?`)) return
+      try {
+        await renameCategory(categoryName, 'General')
+        await qc.invalidateQueries({ queryKey: ['panels'] })
+      } catch {
+        /* ignore */
+      }
+    } else {
+      if (!window.confirm(`¿Eliminar la categoría «${categoryName}»?`)) return
+    }
+
+    removeUserCustomCategory(user?.id, categoryName)
+    setCatVersion((v) => v + 1)
+    if (selectedCategory === categoryName) {
+      setSelectedCategory('all')
     }
   }
 
@@ -190,7 +279,10 @@ export default function Dashboard() {
     if (!acceptingShare) return
     setError('')
     try {
-      await respondPanelShare(acceptingShare.id, true, acceptCategory.trim() || 'General')
+      const cat = acceptCategory.trim() || 'General'
+      saveUserCustomCategory(user?.id, cat)
+      setCatVersion((v) => v + 1)
+      await respondPanelShare(acceptingShare.id, true, cat)
       setAcceptingShare(null)
       await qc.invalidateQueries({ queryKey: ['panels'] })
       await qc.invalidateQueries({ queryKey: ['pending-panel-shares'] })
@@ -204,7 +296,10 @@ export default function Dashboard() {
     if (!editingCustomCategory) return
     setError('')
     try {
-      await updatePanelShareCategory(editingCustomCategory.shareId, editingCustomCategory.category.trim() || 'General')
+      const cat = editingCustomCategory.category.trim() || 'General'
+      saveUserCustomCategory(user?.id, cat)
+      setCatVersion((v) => v + 1)
+      await updatePanelShareCategory(editingCustomCategory.shareId, cat)
       setEditingCustomCategory(null)
       await qc.invalidateQueries({ queryKey: ['panels'] })
     } catch (err) {
@@ -212,21 +307,256 @@ export default function Dashboard() {
     }
   }
 
+  function renderListRow(p: Panel) {
+    return (
+      <div
+        key={p.id}
+        className="group flex flex-col md:flex-row md:items-center justify-between gap-3 rounded-xl border border-slate-800/90 bg-slate-900/40 hover:bg-slate-900/90 p-3 sm:px-4 transition-all hover:border-sky-500/50 hover:shadow-md hover:shadow-sky-950/20"
+      >
+        <div className="flex min-w-0 items-center gap-3.5 flex-1">
+          <div
+            onClick={() => openPanelTab(p)}
+            className="cursor-pointer shrink-0"
+            title="Abrir en pestaña"
+          >
+            {p.logo_url ? (
+              <img
+                src={p.logo_url}
+                alt=""
+                className="h-10 w-10 rounded-lg bg-slate-800 object-cover ring-1 ring-slate-700/50"
+              />
+            ) : (
+              <span className="grid h-10 w-10 place-items-center rounded-lg bg-slate-800 font-bold text-slate-300 ring-1 ring-slate-700/50 group-hover:text-sky-400">
+                {p.name.slice(0, 1).toUpperCase()}
+              </span>
+            )}
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => openPanelTab(p)}
+                className="text-left font-semibold text-slate-100 hover:text-sky-300 transition-colors truncate max-w-xs sm:max-w-md"
+                title="Abrir en pestaña"
+              >
+                {p.name}
+              </button>
+
+              <Badge tone="slate">
+                <Folder size={11} /> {p.category || 'General'}
+              </Badge>
+
+              {p.is_shared && (
+                <Badge tone="violet">
+                  <Users size={11} /> {p.shared_by_name ? `De ${p.shared_by_name.split(' ')[0]}` : 'Compartido'}
+                </Badge>
+              )}
+
+              {credPanelIds.has(p.id) ? (
+                <Badge tone="green">
+                  <KeyRound size={11} /> Cuenta lista
+                </Badge>
+              ) : (
+                <Badge tone="slate">
+                  <KeyRound size={11} /> Sin credencial
+                </Badge>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400 mt-1">
+              <a
+                href={p.url}
+                target="_blank"
+                rel="noreferrer"
+                className="hover:text-sky-300 transition-colors truncate max-w-xs flex items-center gap-1 font-mono text-slate-400 hover:underline"
+                title={`Abrir URL externa: ${p.url}`}
+              >
+                {hostname(p.url)}
+              </a>
+
+              {p.notes && (
+                <span className="hidden sm:inline-block text-slate-400 italic truncate max-w-sm" title={p.notes}>
+                  • {p.notes}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0 self-end md:self-center pt-2 md:pt-0 border-t md:border-t-0 border-slate-800/60 w-full md:w-auto justify-end">
+          <Button
+            variant="primary"
+            className="px-3 py-1.5 text-xs flex items-center gap-1.5 shadow-sm shadow-sky-500/20"
+            onClick={() => openPanelTab(p)}
+          >
+            Abrir pestaña
+          </Button>
+
+          <a
+            href={p.url}
+            target="_blank"
+            rel="noreferrer"
+            className="btn-ghost p-1.5 text-slate-400 hover:text-sky-300 transition-colors rounded-lg"
+            title="Abrir en nueva ventana del navegador"
+          >
+            <ExternalLink size={15} />
+          </a>
+
+          {p.is_shared && p.share_id ? (
+            <Button
+              className="p-1.5 text-xs text-slate-300 hover:text-white"
+              title="Cambiar categoría personal"
+              onClick={() => setEditingCustomCategory({ shareId: p.share_id!, category: p.category })}
+            >
+              <FolderEdit size={14} />
+            </Button>
+          ) : (
+            <Button
+              className="p-1.5 text-xs text-slate-300 hover:text-white"
+              title="Editar panel"
+              onClick={() => openEdit(p)}
+            >
+              <Pencil size={14} />
+            </Button>
+          )}
+
+          <Button
+            className="p-1.5 text-xs text-slate-400 hover:text-red-400"
+            title={p.is_shared ? 'Dejar de acceder a este panel compartido' : 'Eliminar panel'}
+            onClick={() => onDelete(p)}
+          >
+            <Trash2 size={14} />
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  function renderGridCard(p: Panel) {
+    return (
+      <div
+        key={p.id}
+        className="card flex flex-col justify-between p-4 transition-all hover:border-sky-500/60 hover:shadow-lg hover:shadow-sky-950/30"
+      >
+        <div>
+          <div className="flex items-start justify-between gap-2">
+            <div
+              onClick={() => openPanelTab(p)}
+              className="flex min-w-0 items-center gap-3 cursor-pointer flex-1"
+              title="Abrir en pestaña"
+            >
+              {p.logo_url ? (
+                <img src={p.logo_url} alt="" className="h-10 w-10 rounded-lg bg-slate-800 object-cover shrink-0" />
+              ) : (
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-slate-800 font-bold text-slate-300">
+                  {p.name.slice(0, 1).toUpperCase()}
+                </span>
+              )}
+              <div className="min-w-0">
+                <p className="truncate font-semibold text-slate-100 hover:text-sky-300 transition-colors">
+                  {p.name}
+                </p>
+                <p className="truncate text-xs text-slate-500">{hostname(p.url)}</p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => openPanelTab(p)}
+              className="p-1 text-slate-500 hover:text-sky-400 transition-colors shrink-0"
+              title="Abrir en pestaña"
+            >
+              <ExternalLink size={15} />
+            </button>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            <Badge tone="slate">
+              <Folder size={11} /> {p.category || 'General'}
+            </Badge>
+
+            {p.is_shared && (
+              <Badge tone="violet">
+                <Users size={11} /> {p.shared_by_name ? `De ${p.shared_by_name.split(' ')[0]}` : 'Compartido'}
+              </Badge>
+            )}
+
+            {credPanelIds.has(p.id) && (
+              <Badge tone="green">
+                <KeyRound size={11} /> Cuenta lista
+              </Badge>
+            )}
+          </div>
+
+          {p.notes && (
+            <p className="mt-2 text-xs text-slate-400 line-clamp-1 italic">
+              {p.notes}
+            </p>
+          )}
+        </div>
+
+        <div className="mt-4 flex items-center justify-between border-t border-slate-800/80 pt-2.5 text-xs">
+          <Button
+            variant="primary"
+            className="px-2.5 py-1 text-xs"
+            onClick={() => openPanelTab(p)}
+          >
+            Abrir pestaña
+          </Button>
+
+          <div className="flex items-center gap-1">
+            {p.is_shared && p.share_id ? (
+              <Button
+                className="px-2 py-1 text-xs"
+                title="Cambiar categoría personal"
+                onClick={() => setEditingCustomCategory({ shareId: p.share_id!, category: p.category })}
+              >
+                <FolderEdit size={13} />
+              </Button>
+            ) : (
+              <Button
+                className="px-2 py-1 text-xs text-slate-300 hover:text-white"
+                title="Editar panel"
+                onClick={() => openEdit(p)}
+              >
+                <Pencil size={13} /> <span className="hidden sm:inline">Editar</span>
+              </Button>
+            )}
+
+            <Button
+              className="px-2 py-1 text-xs text-red-400 hover:text-red-300"
+              title={p.is_shared ? 'Dejar de acceder a este panel compartido' : 'Eliminar panel'}
+              onClick={() => onDelete(p)}
+            >
+              <Trash2 size={13} />
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="mx-auto max-w-7xl space-y-5 p-4">
       {/* Encabezado y acciones principales */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Categorías & Paneles</h1>
+          <h1 className="text-2xl font-semibold">Tus Categorías & Paneles</h1>
           <p className="text-sm text-slate-400">
-            Crea categorías personalizadas, organiza tus paneles, edítalos y accede a ellos en pestañas
+            Crea tus propias categorías personalizadas, organiza tus paneles y accede a ellos en pestañas
           </p>
         </div>
         <div className="flex items-center gap-2 ml-auto">
-          <Button onClick={() => setNewCatModalOpen(true)} className="text-xs bg-slate-800 hover:bg-slate-700">
+          <Button
+            onClick={() => {
+              setNewCatName('')
+              setNewCatModalOpen(true)
+            }}
+            className="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200"
+          >
             <FolderPlus size={15} className="text-sky-400" /> Añadir categoría
           </Button>
-          <Button variant="primary" onClick={() => openCreate('General')}>
+          <Button variant="primary" onClick={() => openCreate(selectedCategory !== 'all' ? selectedCategory : 'General')}>
             <Plus size={16} /> Añadir panel
           </Button>
         </div>
@@ -238,105 +568,134 @@ export default function Dashboard() {
           <div className="flex items-center gap-2.5">
             <Share2 className="text-sky-400 shrink-0" size={18} />
             <div>
-              <p className="font-semibold text-sky-200">
-                Tienes {pendingShares.length} invitación{pendingShares.length > 1 ? 'es' : ''} a paneles pendientes
+              <p className="font-semibold text-slate-100">
+                Tienes {pendingShares.length} invitación{pendingShares.length > 1 ? 'es' : ''} de panel compartida{pendingShares.length > 1 ? 's' : ''}
               </p>
               <p className="text-xs text-slate-400">
-                Acepta las invitaciones para agregarlas a tu catálogo y organizarlas en tu categoría deseada.
+                Otros administradores te han dado acceso a paneles para que colabores con ellos.
               </p>
             </div>
           </div>
-          <Link to="/shares" className="btn-primary text-xs shrink-0">
+          <Link to="/shares" className="btn text-xs bg-sky-500 text-white hover:bg-sky-400 shadow-sm font-medium">
             Ver y aceptar invitaciones
           </Link>
         </div>
       )}
 
-      {/* Barra de filtros y búsqueda */}
-      <div className="flex flex-wrap items-center gap-3">
-        {/* Buscador */}
+      {/* Barra de búsqueda y selector de modo de vista */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="relative min-w-[220px] flex-1 sm:max-w-xs">
           <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por panel, URL o sistema…"
+            placeholder="Buscar por panel, URL o categoría…"
             className="pl-9 text-xs sm:text-sm"
           />
         </div>
 
-        {/* Filtro por tipo / compartidos */}
-        <div className="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-900 p-1">
-          {(
-            [
-              ['all', 'Todos'],
-              ['own', 'Propios'],
-              ['third', 'Terceros'],
-              ['shared', 'Compartidos'],
-            ] as [FilterKind, string][]
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              onClick={() => setFilterKind(value)}
-              className={clsx(
-                'rounded-md px-2.5 py-1 text-xs sm:text-sm transition-colors',
-                filterKind === value ? 'bg-slate-700 text-white font-medium' : 'text-slate-400 hover:text-slate-200'
-              )}
-            >
-              {label}
-            </button>
-          ))}
+        {/* Conmutador de vista Lista / Cuadrícula */}
+        <div className="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-950/70 p-1">
+          <button
+            type="button"
+            onClick={() => handleSetViewMode('list')}
+            className={clsx(
+              'flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-all',
+              viewMode === 'list'
+                ? 'bg-sky-500 text-white shadow'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+            )}
+            title="Vista Lista"
+          >
+            <List size={14} />
+            <span>Lista</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSetViewMode('grid')}
+            className={clsx(
+              'flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-all',
+              viewMode === 'grid'
+                ? 'bg-sky-500 text-white shadow'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+            )}
+            title="Vista Cuadrícula"
+          >
+            <LayoutGrid size={14} />
+            <span>Cuadrícula</span>
+          </button>
         </div>
       </div>
 
-      {/* Píldoras de filtro por Categoría / Sistema */}
-      {existingCategories.length > 0 && (
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-          <span className="text-xs font-semibold text-slate-500 mr-1 shrink-0">Categoría:</span>
-          <button
-            onClick={() => setSelectedCategory('all')}
-            className={clsx(
-              'rounded-full px-3 py-1 text-xs transition-colors shrink-0',
-              selectedCategory === 'all'
-                ? 'bg-sky-500 text-white font-medium shadow-sm'
-                : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-            )}
-          >
-            Todas ({panels.length})
-          </button>
-          {existingCategories.map((cat) => {
-            const count = panels.filter((p) => (p.category || 'General') === cat).length
-            return (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                className={clsx(
-                  'flex items-center gap-1 rounded-full px-3 py-1 text-xs transition-colors shrink-0',
-                  selectedCategory === cat
-                    ? 'bg-sky-500 text-white font-medium shadow-sm'
-                    : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-                )}
-              >
-                <span>{cat}</span>
-                <span className={selectedCategory === cat ? 'text-sky-100' : 'text-slate-500'}>({count})</span>
-              </button>
-            )
-          })}
-        </div>
-      )}
+      {/* Píldoras de filtro por Categoría personal */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+        <span className="text-xs font-semibold text-slate-500 mr-1 shrink-0">Categoría:</span>
+        <button
+          onClick={() => setSelectedCategory('all')}
+          className={clsx(
+            'rounded-full px-3 py-1 text-xs transition-colors shrink-0',
+            selectedCategory === 'all'
+              ? 'bg-sky-500 text-white font-medium shadow-sm'
+              : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+          )}
+        >
+          Todas ({panels.length})
+        </button>
+        {filterCategories.map((cat) => {
+          const count = panels.filter((p) => (p.category || 'General') === cat).length
+          return (
+            <button
+              key={cat}
+              onClick={() => setSelectedCategory(cat)}
+              className={clsx(
+                'flex items-center gap-1 rounded-full px-3 py-1 text-xs transition-colors shrink-0',
+                selectedCategory === cat
+                  ? 'bg-sky-500 text-white font-medium shadow-sm'
+                  : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+              )}
+            >
+              <span>{cat}</span>
+              <span className={selectedCategory === cat ? 'text-sky-100' : 'text-slate-500'}>({count})</span>
+            </button>
+          )
+        })}
+
+        <button
+          onClick={() => {
+            setNewCatName('')
+            setNewCatModalOpen(true)
+          }}
+          className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-sky-400 hover:text-sky-300 bg-sky-950/40 border border-sky-800/40 shrink-0"
+          title="Crear nueva categoría"
+        >
+          <Plus size={12} /> Nueva categoría
+        </button>
+      </div>
 
       {error && <p className="text-sm text-red-400">{error}</p>}
 
-      {/* Lista de Paneles agrupados por Categoría */}
+      {/* Contenido principal de paneles */}
       {loading ? (
         <EmptyState>Cargando paneles y categorías…</EmptyState>
       ) : visiblePanels.length === 0 ? (
         <EmptyState>
-          {panels.length === 0
+          {panels.length === 0 && allCategories.length <= 1
             ? 'Todavía no has añadido ningún panel. Pulsa «Añadir categoría» o «Añadir panel» para comenzar.'
             : 'Ningún panel coincide con los filtros seleccionados.'}
         </EmptyState>
+      ) : selectedCategory === 'all' ? (
+        /* VISTA UNIFICADA SIN SEPARACIÓN POR CATEGORÍAS */
+        viewMode === 'list' ? (
+          <div className="space-y-2">
+            {visiblePanels.map((p) => renderListRow(p))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {visiblePanels.map((p) => renderGridCard(p))}
+          </div>
+        )
       ) : (
+        /* VISTA POR CATEGORÍA ESPECÍFICA CON CABECERA DE CATEGORÍA */
         <div className="space-y-8">
           {groupedByCategory.map(([category, catPanels]) => (
             <section key={category} className="space-y-3.5">
@@ -353,7 +712,7 @@ export default function Dashboard() {
                     {catPanels.length} {catPanels.length === 1 ? 'panel' : 'paneles'}
                   </span>
 
-                  {/* Botón para Renombrar / Editar Categoría */}
+                  {/* Botón para Renombrar Categoría */}
                   <button
                     type="button"
                     onClick={() => setRenamingCategory({ oldName: category, newName: category })}
@@ -361,6 +720,16 @@ export default function Dashboard() {
                     title={`Editar nombre de la categoría «${category}»`}
                   >
                     <Pencil size={13} />
+                  </button>
+
+                  {/* Botón para Eliminar Categoría */}
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteCategory(category)}
+                    className="p-1 text-slate-600 hover:text-red-400 transition-colors"
+                    title={`Eliminar categoría «${category}»`}
+                  >
+                    <Trash2 size={13} />
                   </button>
                 </div>
 
@@ -370,7 +739,7 @@ export default function Dashboard() {
                     onClick={() => setRenamingCategory({ oldName: category, newName: category })}
                     title={`Editar nombre de la categoría «${category}»`}
                   >
-                    <FolderEdit size={13} /> Renombrar categoría
+                    <FolderEdit size={13} /> Renombrar
                   </Button>
                   <Button
                     className="text-xs px-2.5 py-1 text-sky-300 hover:text-sky-200 border border-slate-800 hover:border-slate-700 bg-slate-900/60"
@@ -382,112 +751,39 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Grid de Tarjetas de Panel */}
-              <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {catPanels.map((p: Panel) => (
-                  <div
-                    key={p.id}
-                    className="card flex flex-col justify-between p-4 transition-all hover:border-sky-500/60 hover:shadow-lg hover:shadow-sky-950/30"
-                  >
-                    <div>
-                      {/* Cabecera de Tarjeta: Logo y Título */}
-                      <div className="flex items-start justify-between gap-2">
-                        <div
-                          onClick={() => openPanelTab(p)}
-                          className="flex min-w-0 items-center gap-3 cursor-pointer flex-1"
-                          title="Abrir en pestaña"
-                        >
-                          {p.logo_url ? (
-                            <img src={p.logo_url} alt="" className="h-10 w-10 rounded-lg bg-slate-800 object-cover shrink-0" />
-                          ) : (
-                            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-slate-800 font-bold text-slate-300">
-                              {p.name.slice(0, 1).toUpperCase()}
-                            </span>
-                          )}
-                          <div className="min-w-0">
-                            <p className="truncate font-semibold text-slate-100 hover:text-sky-300 transition-colors">
-                              {p.name}
-                            </p>
-                            <p className="truncate text-xs text-slate-500">{hostname(p.url)}</p>
-                          </div>
-                        </div>
-
-                        <button
-                          onClick={() => openPanelTab(p)}
-                          className="p-1 text-slate-500 hover:text-sky-400 transition-colors shrink-0"
-                          title="Abrir en pestaña"
-                        >
-                          <ExternalLink size={15} />
-                        </button>
-                      </div>
-
-                      {/* Badges de Tipo, Compartición y Credencial */}
-                      <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                        <Badge tone={p.kind === 'own' ? 'sky' : 'violet'}>
-                          {p.kind === 'own' ? 'Propio' : 'Tercero'}
-                        </Badge>
-
-                        {p.is_shared && (
-                          <Badge tone="violet">
-                            <Users size={11} /> {p.shared_by_name ? `De ${p.shared_by_name.split(' ')[0]}` : 'Compartido'}
-                          </Badge>
-                        )}
-
-                        {credPanelIds.has(p.id) && (
-                          <Badge tone="green">
-                            <KeyRound size={11} /> Cuenta lista
-                          </Badge>
-                        )}
-                      </div>
-
-                      {p.notes && (
-                        <p className="mt-2 text-xs text-slate-400 line-clamp-1 italic">
-                          {p.notes}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Barra de Acciones Clara y Accesible */}
-                    <div className="mt-4 flex items-center justify-between border-t border-slate-800/80 pt-2.5 text-xs">
-                      <Button
-                        variant="primary"
-                        className="px-2.5 py-1 text-xs"
-                        onClick={() => openPanelTab(p)}
-                      >
-                        Abrir pestaña
-                      </Button>
-
-                      <div className="flex items-center gap-1">
-                        {p.is_shared && p.share_id ? (
-                          <Button
-                            className="px-2 py-1 text-xs"
-                            title="Cambiar categoría personal"
-                            onClick={() => setEditingCustomCategory({ shareId: p.share_id!, category: p.category })}
-                          >
-                            <FolderEdit size={13} />
-                          </Button>
-                        ) : (
-                          <Button
-                            className="px-2 py-1 text-xs text-slate-300 hover:text-white"
-                            title="Editar panel"
-                            onClick={() => openEdit(p)}
-                          >
-                            <Pencil size={13} /> <span className="hidden sm:inline">Editar</span>
-                          </Button>
-                        )}
-
-                        <Button
-                          className="px-2 py-1 text-xs text-red-400 hover:text-red-300"
-                          title={p.is_shared ? 'Dejar de acceder a este panel compartido' : 'Eliminar panel'}
-                          onClick={() => onDelete(p)}
-                        >
-                          <Trash2 size={13} />
-                        </Button>
-                      </div>
-                    </div>
+              {/* Si la categoría está vacía, mostrar tarjeta para añadir el primer panel */}
+              {catPanels.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-800 p-6 text-center bg-slate-950/30 space-y-3">
+                  <p className="text-sm text-slate-400">
+                    La categoría <strong>«{category}»</strong> no tiene paneles todavía.
+                  </p>
+                  <div className="flex items-center justify-center gap-2">
+                    <Button
+                      variant="primary"
+                      className="text-xs"
+                      onClick={() => openCreate(category)}
+                    >
+                      <Plus size={14} /> Añadir panel a {category}
+                    </Button>
+                    <Button
+                      className="text-xs text-red-400 hover:text-red-300 border border-slate-800"
+                      onClick={() => handleDeleteCategory(category)}
+                    >
+                      <Trash2 size={13} /> Eliminar categoría
+                    </Button>
                   </div>
-                ))}
-              </div>
+                </div>
+              ) : viewMode === 'list' ? (
+                /* Vista Lista de Servidores / Paneles */
+                <div className="space-y-2">
+                  {catPanels.map((p: Panel) => renderListRow(p))}
+                </div>
+              ) : (
+                /* Grid de Tarjetas de Panel */
+                <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {catPanels.map((p: Panel) => renderGridCard(p))}
+                </div>
+              )}
             </section>
           ))}
         </div>
@@ -499,34 +795,42 @@ export default function Dashboard() {
         onClose={() => setModalOpen(false)}
         initial={editing}
         defaultCategory={targetCatForNewPanel}
-        existingCategories={existingCategories}
+        existingCategories={allCategories}
       />
 
-      {/* Modal para crear una nueva categoría */}
+      {/* Modal para crear una nueva categoría directamente */}
       <Modal
         open={newCatModalOpen}
         onClose={() => setNewCatModalOpen(false)}
-        title="Añadir nueva categoría"
+        title="Crear categoría personalizada"
       >
-        <form onSubmit={handleCreateNewCategory} className="space-y-4">
+        <form onSubmit={handleCreateCategoryOnly} className="space-y-4">
           <p className="text-xs text-slate-400">
-            Escribe el nombre de la nueva categoría o sistema (ej: <em>Facturación, Tokio, Marketing, Servidores</em>). Al crearla, podrás añadir paneles directamente a ella.
+            Escribe el nombre personalizado que quieras darle a tu nueva categoría (por ejemplo:{' '}
+            <strong>OneProvider</strong>, <strong>Tokio</strong>, <strong>Hosting</strong>, <strong>Facturación</strong>, etc.).
           </p>
-          <Field label="Nombre de la categoría:">
+          <Field label="Nombre de tu categoría:">
             <Input
               required
               autoFocus
               value={newCatName}
               onChange={(e) => setNewCatName(e.target.value)}
-              placeholder="Ej: Facturación, Tokio, Servidores..."
+              placeholder="Escribe el nombre aquí..."
             />
           </Field>
-          <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+          <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-800">
             <Button type="button" onClick={() => setNewCatModalOpen(false)}>
               Cancelar
             </Button>
+            <Button
+              type="button"
+              className="bg-slate-800 hover:bg-slate-700 text-slate-200"
+              onClick={handleCreateCategoryAndOpenPanel}
+            >
+              Crear y añadir panel
+            </Button>
             <Button variant="primary" type="submit">
-              Crear categoría y añadir panel
+              Crear categoría
             </Button>
           </div>
         </form>
@@ -571,7 +875,7 @@ export default function Dashboard() {
         title="Cambiar mi categoría personal"
       >
         <form onSubmit={onSaveCustomCategory} className="space-y-4">
-          <Field label="Categoría / Sistema para este panel compartido:">
+          <Field label="Categoría personalizada para este panel compartido:">
             <Input
               required
               list="dash-cat-list"
@@ -579,10 +883,10 @@ export default function Dashboard() {
               onChange={(e) =>
                 setEditingCustomCategory((prev) => (prev ? { ...prev, category: e.target.value } : null))
               }
-              placeholder="Ej: Facturación, Marketing, Sistemas..."
+              placeholder="Ej: OneProvider, Tokio, Sistemas..."
             />
             <datalist id="dash-cat-list">
-              {existingCategories.map((c) => (
+              {allCategories.map((c) => (
                 <option key={c} value={c} />
               ))}
             </datalist>
@@ -608,13 +912,19 @@ export default function Dashboard() {
           <p className="text-xs text-slate-300">
             Panel: <span className="font-semibold">{acceptingShare?.panel?.name}</span>
           </p>
-          <Field label="Elige en qué categoría / sistema quieres organizarlo:">
+          <Field label="Elige o escribe tu categoría personal donde organizarlo:">
             <Input
               required
+              list="accept-share-cat-list"
               value={acceptCategory}
               onChange={(e) => setAcceptCategory(e.target.value)}
-              placeholder="Ej: Facturación, Sistemas, Compartidos..."
+              placeholder="Ej: Tokio, OneProvider, Sistemas..."
             />
+            <datalist id="accept-share-cat-list">
+              {allCategories.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
           </Field>
           <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
             <Button type="button" onClick={() => setAcceptingShare(null)}>

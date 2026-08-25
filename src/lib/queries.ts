@@ -1,4 +1,12 @@
 import { supabase } from './supabase'
+import {
+  getUserPanelCategoryMap,
+  removeUserPanelCategory,
+  renameUserCustomCategory,
+  renameUserPanelCategory,
+  saveUserCustomCategory,
+  saveUserPanelCategory,
+} from './categories'
 import type { AdminUser, Collaboration, Panel, PanelCredential, PanelShare, Profile } from './types'
 
 const CRED_COLUMNS = 'id, panel_id, owner_id, label, username, notes, created_at, updated_at'
@@ -72,12 +80,25 @@ export async function fetchPanels(): Promise<Panel[]> {
     }
   }
 
+  const localPanelCats = getUserPanelCategoryMap(user.id)
+
   return panels.map((p) => {
     const isShared = p.owner_id !== user.id
     const shareInfo = sharesMap.get(p.id)
+    const localCat = localPanelCats[p.id]
+
+    let resolvedCategory = p.category
+    if (isShared && shareInfo?.customCategory) {
+      resolvedCategory = shareInfo.customCategory
+    } else if (localCat) {
+      resolvedCategory = localCat
+    }
+
+    if (!resolvedCategory) resolvedCategory = 'General'
+
     return {
       ...p,
-      category: (isShared && shareInfo?.customCategory ? shareInfo.customCategory : p.category) || 'General',
+      category: resolvedCategory,
       is_shared: isShared,
       share_id: shareInfo?.shareId,
       shared_by_name: isShared ? profileMap.get(p.owner_id) ?? undefined : undefined,
@@ -216,27 +237,15 @@ export async function savePanel(
 
   const targetCategory = panel.category?.trim() || 'General'
 
-  // 1. Intentar con RPC super_upsert_panel (que gestiona owner_id)
-  try {
-    const { data, error } = await supabase.rpc('super_upsert_panel', {
-      p_id: panel.id ?? null,
-      p_name: panel.name.trim(),
-      p_url: panel.url.trim(),
-      p_kind: panel.kind,
-      p_logo_url: panel.logo_url ?? null,
-      p_notes: panel.notes ?? null,
-      p_sort_order: panel.sort_order ?? 0,
-      p_supabase_url: panel.kind === 'own' ? panel.supabase_url || null : null,
-      p_supabase_anon_key: panel.kind === 'own' ? panel.supabase_anon_key || null : null,
-      p_category: targetCategory,
-    })
-    if (!error && data) return data as string
-  } catch {
-    /* fallback directo */
-  }
+  // Guardar en la lista de categorías del usuario
+  saveUserCustomCategory(user.id, targetCategory)
 
-  // 2. Operación directa sobre super_panels si la RPC falla o está desactualizada
+  let savedId = panel.id
+
+  // 1. Si estamos actualizando un panel existente
   if (panel.id) {
+    saveUserPanelCategory(user.id, panel.id, targetCategory)
+
     const updatePayload: Record<string, unknown> = {
       name: panel.name.trim(),
       url: panel.url.trim(),
@@ -263,10 +272,30 @@ export async function savePanel(
         .update(updatePayload)
         .eq('id', panel.id)
         .eq('owner_id', user.id)
-      if (retryErr) throw retryErr
+      if (retryErr) {
+        // Fallback a RPC
+        try {
+          const { data: rpcData, error: rpcErr } = await supabase.rpc('super_upsert_panel', {
+            p_id: panel.id,
+            p_name: panel.name.trim(),
+            p_url: panel.url.trim(),
+            p_kind: panel.kind,
+            p_logo_url: panel.logo_url ?? null,
+            p_notes: panel.notes ?? null,
+            p_sort_order: panel.sort_order ?? 0,
+            p_supabase_url: panel.kind === 'own' ? panel.supabase_url || null : null,
+            p_supabase_anon_key: panel.kind === 'own' ? panel.supabase_anon_key || null : null,
+            p_category: targetCategory,
+          })
+          if (rpcErr || !rpcData) throw retryErr
+          savedId = rpcData as string
+        } catch {
+          throw retryErr
+        }
+      }
     }
-    return panel.id
   } else {
+    // 2. Si estamos creando un nuevo panel
     const insertPayload: Record<string, unknown> = {
       owner_id: user.id,
       name: panel.name.trim(),
@@ -293,14 +322,48 @@ export async function savePanel(
         .insert(insertPayload)
         .select('id')
         .single()
-      if (retryErr) throw retryErr
-      return retryData.id
+      if (retryErr) {
+        // Fallback a RPC
+        try {
+          const { data: rpcData, error: rpcErr } = await supabase.rpc('super_upsert_panel', {
+            p_id: null,
+            p_name: panel.name.trim(),
+            p_url: panel.url.trim(),
+            p_kind: panel.kind,
+            p_logo_url: panel.logo_url ?? null,
+            p_notes: panel.notes ?? null,
+            p_sort_order: panel.sort_order ?? 0,
+            p_supabase_url: panel.kind === 'own' ? panel.supabase_url || null : null,
+            p_supabase_anon_key: panel.kind === 'own' ? panel.supabase_anon_key || null : null,
+            p_category: targetCategory,
+          })
+          if (rpcErr || !rpcData) throw retryErr
+          savedId = rpcData as string
+        } catch {
+          throw retryErr
+        }
+      } else {
+        savedId = retryData.id
+      }
+    } else {
+      savedId = inserted.id
     }
-    return inserted.id
+
+    if (savedId) {
+      saveUserPanelCategory(user.id, savedId, targetCategory)
+    }
   }
+
+  return savedId!
 }
 
 export async function deletePanel(id: string): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (user) {
+    removeUserPanelCategory(user.id, id)
+  }
   const { error } = await supabase.from('super_panels').delete().eq('id', id)
   if (error) throw error
 }
@@ -318,7 +381,11 @@ export async function renameCategory(oldName: string, newName: string): Promise<
   if (!trimmedNew) throw new Error('El nuevo nombre de categoría no puede estar vacío')
   if (trimmedOld.toLowerCase() === trimmedNew.toLowerCase()) return
 
-  // 1. Actualizar paneles propios que tengan esta categoría
+  // 1. Actualizar mapeos locales
+  renameUserCustomCategory(user.id, trimmedOld, trimmedNew)
+  renameUserPanelCategory(user.id, trimmedOld, trimmedNew)
+
+  // 2. Actualizar paneles propios que tengan esta categoría
   try {
     const { error: errPanels } = await supabase
       .from('super_panels')
@@ -332,7 +399,7 @@ export async function renameCategory(oldName: string, newName: string): Promise<
     console.warn(e)
   }
 
-  // 2. Actualizar paneles compartidos del usuario actual con esa categoría
+  // 3. Actualizar paneles compartidos del usuario actual con esa categoría
   try {
     const userEmail = (user.email ?? '').toLowerCase()
     await supabase
@@ -467,6 +534,75 @@ export async function fetchAcceptedCollaborators(): Promise<{ email: string; nam
   return Array.from(map.values())
 }
 
+// Historial y persistencia de usuarios con los que se ha compartido paneles
+const SHARED_USERS_HISTORY_KEY = 'sp_shared_users_history'
+
+export function saveSharedUserToHistory(email: string): void {
+  const norm = email.trim().toLowerCase()
+  if (!norm || !norm.includes('@')) return
+  try {
+    const raw = localStorage.getItem(SHARED_USERS_HISTORY_KEY)
+    const list = raw ? (JSON.parse(raw) as string[]) : []
+    if (!list.includes(norm)) {
+      list.push(norm)
+      localStorage.setItem(SHARED_USERS_HISTORY_KEY, JSON.stringify(list))
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function fetchHistoricalSharedUsers(): Promise<{ email: string; name?: string }[]> {
+  const map = new Map<string, { email: string; name?: string }>()
+
+  // 1. Colaboradores aceptados o existentes
+  try {
+    const collabs = await fetchAcceptedCollaborators()
+    for (const c of collabs) {
+      if (c.email) {
+        map.set(c.email.toLowerCase(), { email: c.email, name: c.name })
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  // 2. Todos los paneles compartidos en la base de datos
+  try {
+    const { data } = await supabase.from('super_panel_shares').select('shared_with_email')
+    if (data) {
+      for (const row of data) {
+        const em = (row.shared_with_email || '').trim().toLowerCase()
+        if (em && !map.has(em)) {
+          map.set(em, { email: em })
+        }
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  // 3. Del historial persistente en localStorage
+  try {
+    const raw = localStorage.getItem(SHARED_USERS_HISTORY_KEY)
+    if (raw) {
+      const stored = JSON.parse(raw) as string[]
+      if (Array.isArray(stored)) {
+        for (const em of stored) {
+          const lower = em.trim().toLowerCase()
+          if (lower && !map.has(lower)) {
+            map.set(lower, { email: lower })
+          }
+        }
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  return Array.from(map.values()).sort((a, b) => a.email.localeCompare(b.email))
+}
+
 // --- Compartición de Paneles ---
 
 export async function fetchPanelShares(panelId: string): Promise<PanelShare[]> {
@@ -488,14 +624,15 @@ export async function sharePanel(panelId: string, email: string): Promise<void> 
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) throw new Error('Se requiere sesión')
-  if (email.trim().toLowerCase() === (user.email ?? '').toLowerCase()) {
+  const normEmail = email.trim().toLowerCase()
+  if (normEmail === (user.email ?? '').toLowerCase()) {
     throw new Error('No puedes compartir un panel contigo mismo')
   }
 
   const { error } = await supabase.from('super_panel_shares').insert({
     panel_id: panelId,
     shared_by: user.id,
-    shared_with_email: email.trim().toLowerCase(),
+    shared_with_email: normEmail,
     status: 'pending',
     custom_category: 'General',
   })
@@ -505,6 +642,9 @@ export async function sharePanel(panelId: string, email: string): Promise<void> 
     }
     throw error
   }
+
+  // Guardar en el historial de usuarios compartidos
+  saveSharedUserToHistory(normEmail)
 }
 
 export async function removePanelShare(shareId: string): Promise<void> {
@@ -560,25 +700,57 @@ export async function respondPanelShare(
   accept: boolean,
   customCategory = 'General'
 ): Promise<void> {
-  const { error } = await supabase
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  const trimmed = customCategory.trim() || 'General'
+
+  if (user && accept) {
+    saveUserCustomCategory(user.id, trimmed)
+  }
+
+  const { data, error } = await supabase
     .from('super_panel_shares')
     .update({
       status: accept ? 'accepted' : 'rejected',
-      custom_category: customCategory.trim() || 'General',
+      custom_category: trimmed,
       updated_at: new Date().toISOString(),
     })
     .eq('id', shareId)
+    .select('panel_id')
+    .maybeSingle()
+
+  if (user && accept && data?.panel_id) {
+    saveUserPanelCategory(user.id, data.panel_id, trimmed)
+  }
+
   if (error) throw error
 }
 
 export async function updatePanelShareCategory(shareId: string, customCategory: string): Promise<void> {
-  const { error } = await supabase
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  const trimmed = customCategory.trim() || 'General'
+
+  if (user) {
+    saveUserCustomCategory(user.id, trimmed)
+  }
+
+  const { data, error } = await supabase
     .from('super_panel_shares')
     .update({
-      custom_category: customCategory.trim() || 'General',
+      custom_category: trimmed,
       updated_at: new Date().toISOString(),
     })
     .eq('id', shareId)
+    .select('panel_id')
+    .maybeSingle()
+
+  if (user && data?.panel_id) {
+    saveUserPanelCategory(user.id, data.panel_id, trimmed)
+  }
+
   if (error) throw error
 }
 

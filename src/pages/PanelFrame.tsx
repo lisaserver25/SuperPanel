@@ -2,11 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  ClipboardCheck,
   ArrowUpRight,
   Check,
   ClipboardCopy,
-  ExternalLink,
   Eye,
   EyeOff,
   Folder,
@@ -21,6 +19,8 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import { fetchCredentials, fetchPanel, panelLogin, revealCredential } from '../lib/queries'
+import { getPanelEmbedPreference, savePanelEmbedPreference } from '../lib/categories'
+import { useAuth } from '../lib/auth'
 import { Badge, Button, Select } from '../components/ui'
 
 type LoginStatus = 'idle' | 'requesting' | 'sent' | 'done' | 'error'
@@ -33,6 +33,7 @@ interface BridgeMessage {
 
 export default function PanelFrame() {
   const { id } = useParams<{ id: string }>()
+  const { user } = useAuth()
 
   const panelQuery = useQuery({ queryKey: ['panel', id], queryFn: () => fetchPanel(id!), enabled: !!id })
   const credsQuery = useQuery({ queryKey: ['credentials'], queryFn: fetchCredentials })
@@ -40,14 +41,22 @@ export default function PanelFrame() {
   const panel = panelQuery.data ?? null
   const isOwn = panel?.kind === 'own'
 
-  // Para paneles de terceros, por defecto mostramos la vista lanzador optimizada (evita pantalla en blanco)
-  const [viewMode, setViewMode] = useState<'launcher' | 'frame'>('launcher')
+  // Recordar si el panel se visualiza embebido o como acceso directo
+  const [viewMode, setViewMode] = useState<'launcher' | 'frame'>('frame')
 
   useEffect(() => {
-    if (panel) {
-      setViewMode(panel.kind === 'own' ? 'frame' : 'launcher')
+    if (panel?.id) {
+      const pref = getPanelEmbedPreference(user?.id, panel.id, panel.kind)
+      setViewMode(pref)
     }
-  }, [panel?.id, panel?.kind])
+  }, [panel?.id, panel?.kind, user?.id])
+
+  function handleSwitchViewMode(mode: 'launcher' | 'frame') {
+    setViewMode(mode)
+    if (panel?.id) {
+      savePanelEmbedPreference(user?.id, panel.id, mode)
+    }
+  }
 
   const panelOrigin = useMemo(() => {
     if (!panel) return null
@@ -58,7 +67,6 @@ export default function PanelFrame() {
     }
   }, [panel])
 
-  // RLS: todas las credenciales que llegan ya son del usuario
   // Credenciales accesibles para este panel
   const credentials = useMemo(
     () => (credsQuery.data ?? []).filter((c) => c.panel_id === id),
@@ -70,7 +78,6 @@ export default function PanelFrame() {
 
   const [status, setStatus] = useState<LoginStatus>('idle')
   const [message, setMessage] = useState('')
-  const [copied, setCopied] = useState('')
   const [copied, setCopied] = useState<'user' | 'password' | ''>('')
   const [revealedPassword, setRevealedPassword] = useState<string | null>(null)
   const [revealing, setRevealing] = useState(false)
@@ -93,7 +100,6 @@ export default function PanelFrame() {
 
   // Handshake con el puente del panel (postMessage con allowlist de origen)
   useEffect(() => {
-    if (!panelOrigin) return
     if (!panelOrigin || viewMode !== 'frame') return
     function onMessage(event: MessageEvent) {
       if (event.origin !== panelOrigin) return
@@ -112,12 +118,10 @@ export default function PanelFrame() {
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [panelOrigin, sendLogin])
   }, [panelOrigin, sendLogin, viewMode])
 
   // Sondeo sp:ping hasta que el puente conteste (cubre carreras de carga)
   useEffect(() => {
-    if (!isOwn || !panelOrigin) return
     if (!isOwn || !panelOrigin || viewMode !== 'frame') return
     bridgeReadyRef.current = false
     let attempts = 0
@@ -131,13 +135,10 @@ export default function PanelFrame() {
       win.postMessage({ source: 'superpaneles-hub', type: 'sp:ping' }, panelOrigin)
     }, 600)
     return () => window.clearInterval(timer)
-  }, [isOwn, panelOrigin, reloadKey, credentialId])
   }, [isOwn, panelOrigin, reloadKey, credentialId, viewMode])
 
-  // Auto-login: pedir tokens a panel-login e inyectarlos vía handshake
   // Auto-login: pedir tokens a panel-login e inyectarlos vía handshake (solo si está en frame)
   useEffect(() => {
-    if (!isOwn || !selected) {
     if (!isOwn || !selected || viewMode !== 'frame') {
       tokensRef.current = null
       setStatus('idle')
@@ -159,7 +160,6 @@ export default function PanelFrame() {
             if (!cancelled && !bridgeReadyRef.current) {
               setStatus('error')
               setMessage(
-                'El panel no responde al handshake. Comprueba que está desplegada la última versión (puente) y que las cabeceras de iframe permiten el origen del hub.'
                 'El panel no responde al handshake. Comprueba que el panel tenga el puente activo o usa la vista de acceso directo.'
               )
             }
@@ -175,7 +175,6 @@ export default function PanelFrame() {
       cancelled = true
       if (watchdog) window.clearTimeout(watchdog)
     }
-  }, [isOwn, selected?.id, reloadKey, sendLogin])
   }, [isOwn, selected?.id, reloadKey, sendLogin, viewMode])
 
   async function copy(what: 'user' | 'password') {
@@ -184,10 +183,8 @@ export default function PanelFrame() {
       const text = what === 'user' ? selected.username : await revealCredential(selected.id)
       await navigator.clipboard.writeText(text)
       setCopied(what)
-      window.setTimeout(() => setCopied(''), 1500)
       window.setTimeout(() => setCopied(''), 2000)
     } catch (err) {
-      setStatus('error')
       setMessage(err instanceof Error ? err.message : 'No se pudo copiar')
     }
   }
@@ -222,13 +219,13 @@ export default function PanelFrame() {
   }
 
   if (panelQuery.isLoading) {
-    return <div className="grid h-[calc(100vh-5.8rem)] place-items-center text-slate-500">Cargando panel…</div>
+    return <div className="grid h-full flex-1 place-items-center text-slate-500 text-xs">Cargando panel…</div>
   }
   if (panelQuery.isError || !panel) {
     return (
       <div className="mx-auto max-w-3xl space-y-3 p-4">
-        <p className="text-red-400">No se pudo cargar el panel.</p>
-        <Link to="/" className="text-sm text-sky-400 hover:underline">
+        <p className="text-red-400 text-xs">No se pudo cargar el panel.</p>
+        <Link to="/" className="text-xs text-sky-400 hover:underline">
           ← Volver a las categorías
         </Link>
       </div>
@@ -244,134 +241,82 @@ export default function PanelFrame() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-5.8rem)] flex-col bg-slate-950">
-      {/* Toolbar: nombre del panel, categoría, credenciales y acciones */}
-      {/* Toolbar: datos del panel, categorías, conmutador de vista y acciones */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 bg-slate-900/90 px-4 py-2">
-        <Link to="/" className="text-lg text-slate-400 hover:text-slate-200 mr-1" title="Volver a las categorías">
+    <div className="flex h-full flex-1 min-h-0 flex-col bg-slate-950">
+      {/* Toolbar compacta: datos del panel, categorías, conmutador de vista y acciones */}
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-800 bg-slate-900/90 px-3 py-1 shrink-0 text-xs">
+        <Link to="/" className="text-sm text-slate-400 hover:text-slate-200 mr-0.5" title="Volver a las categorías">
           ←
         </Link>
 
         {panel.logo_url ? (
-          <img src={panel.logo_url} alt="" className="h-5 w-5 rounded object-cover" />
+          <img src={panel.logo_url} alt="" className="h-4 w-4 rounded object-cover" />
         ) : null}
 
-        <h1 className="max-w-[24ch] truncate text-base sm:text-lg font-semibold leading-none text-slate-100" title={panel.name}>
-        <h1 className="max-w-[22ch] truncate text-base sm:text-lg font-semibold leading-none text-slate-100" title={panel.name}>
+        <h1 className="max-w-[22ch] truncate text-xs sm:text-sm font-semibold leading-none text-slate-100" title={panel.name}>
           {panel.name}
         </h1>
 
         <Badge tone="slate">
-          <Folder size={11} /> {panel.category || 'General'}
+          <Folder size={10} /> {panel.category || 'General'}
         </Badge>
 
         <Badge tone={panel.kind === 'own' ? 'sky' : 'violet'}>
-          {panel.kind === 'own' ? 'Propio (auto-login)' : 'Tercero (externo)'}
-          {panel.kind === 'own' ? 'Propio' : 'Tercero / Externo'}
+          {panel.kind === 'own' ? 'Propio' : 'Tercero'}
         </Badge>
 
         {panel.is_shared && (
           <Badge tone="violet">
-            <Users size={11} /> Compartido por {panel.shared_by_name || 'otro usuario'}
-            <Users size={11} /> Compartido
+            <Users size={10} /> Compartido
           </Badge>
         )}
 
-        {/* Acceso rápido a credenciales guardadas */}
-        {selected && (
-          <div className="flex items-center gap-1.5 ml-1">
-            {credentials.length > 1 && (
-              <Select
-                value={selected.id}
-                onChange={(e) => {
-                  setCredentialId(e.target.value)
-                  reloadFrame()
-                }}
-                className="w-auto py-1 text-xs"
-                title="Cuenta a usar"
-              >
-                {credentials.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label}
-                  </option>
-                ))}
-              </Select>
-        {/* Conmutador de vista (Lanzador / Embebido) */}
-        <div className="flex items-center rounded-lg border border-slate-800 bg-slate-950 p-0.5 ml-2">
-          <button
-            onClick={() => setViewMode('launcher')}
-            className={clsx(
-              'flex items-center gap-1 rounded-md px-2 py-0.5 text-xs transition-colors',
-              viewMode === 'launcher' ? 'bg-sky-500 text-white font-medium shadow-sm' : 'text-slate-400 hover:text-slate-200'
-            )}
+        {/* Indicador de modo de vista y conmutador recordable */}
+        {viewMode === 'frame' ? (
+          <div className="flex items-center gap-1 ml-0.5">
+            <Badge tone="sky">
+              <Layout size={10} /> Marco embebido
+            </Badge>
             <Button
-              className="px-2 py-1 text-xs text-slate-200 border border-slate-700 bg-slate-800 hover:bg-slate-700"
-              onClick={() => copy('user')}
-              title={`Copiar usuario (${selected.username})`}
+              className="text-[11px] px-1.5 py-0.5 text-slate-400 hover:text-amber-300 border border-slate-800 hover:border-amber-800/60"
+              onClick={() => handleSwitchViewMode('launcher')}
+              title="Si la página no carga en el marco, cambiar y recordar como acceso directo"
             >
-              <ClipboardCopy size={13} />
-              {copied === 'user' ? <ClipboardCheck size={13} className="text-emerald-400" /> : null}
-              <span>Usuario</span>
+              <Globe size={11} className="text-amber-400" /> Cambiar a Acceso directo
             </Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1 ml-0.5">
+            <Badge tone="violet">
+              <Globe size={10} /> Acceso directo
+            </Badge>
             <Button
-              className="px-2 py-1 text-xs text-slate-200 border border-slate-700 bg-slate-800 hover:bg-slate-700"
-              onClick={() => copy('password')}
-              title="Copiar contraseña"
+              className="text-[11px] px-1.5 py-0.5 text-slate-400 hover:text-sky-300 border border-slate-800 hover:border-sky-800/60"
+              onClick={() => handleSwitchViewMode('frame')}
+              title="Intentar cargar embebido en el marco"
             >
-              <KeyRound size={13} />
-              {copied === 'password' ? <ClipboardCheck size={13} className="text-emerald-400" /> : null}
-              <span>Contraseña</span>
+              <Layout size={11} className="text-sky-400" /> Probar en marco embebido
             </Button>
           </div>
         )}
-            title="Vista de acceso directo y credenciales (evita pantalla en blanco)"
-          >
-            <Globe size={12} /> Acceso directo
-          </button>
-          <button
-            onClick={() => setViewMode('frame')}
-            className={clsx(
-              'flex items-center gap-1 rounded-md px-2 py-0.5 text-xs transition-colors',
-              viewMode === 'frame' ? 'bg-sky-500 text-white font-medium shadow-sm' : 'text-slate-400 hover:text-slate-200'
-            )}
-            title="Intentar cargar embebido en el marco"
-          >
-            <Layout size={12} /> Marco embebido
-          </button>
-        </div>
 
         {/* Botones de acción derecha */}
-        <div className="ml-auto flex items-center gap-2">
-          <Button className="px-2.5 py-1 text-xs" onClick={reloadFrame}>
-            <RefreshCw size={13} /> Recargar
-          </Button>
+        <div className="ml-auto flex items-center gap-1.5">
           {viewMode === 'frame' && (
-            <Button className="px-2.5 py-1 text-xs" onClick={reloadFrame}>
-              <RefreshCw size={13} /> Recargar
+            <Button className="px-2 py-0.5 text-[11px]" onClick={reloadFrame}>
+              <RefreshCw size={11} /> Recargar
             </Button>
           )}
           <Button
             variant="primary"
-            className="px-3 py-1 text-xs font-semibold shadow-sm"
+            className="px-2.5 py-0.5 text-xs font-semibold shadow-xs"
             onClick={openInNewTab}
-            title="Abrir en pestaña nueva del navegador"
             title="Abrir página web en una pestaña nueva del navegador"
           >
-            <ExternalLink size={14} /> Pestaña nueva
-            <ArrowUpRight size={14} /> Abrir {panel.name}
+            <ArrowUpRight size={13} /> Abrir {panel.name}
           </Button>
         </div>
       </div>
 
-      {/* Aviso para paneles de Terceros (como OneProvider, Hetzner, etc.) sobre protección X-Frame-Options */}
-      {!isOwn && (
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-500/30 bg-amber-950/40 px-4 py-1.5 text-xs text-amber-200">
-          <div className="flex items-center gap-2">
-            <Globe size={14} className="text-amber-400 shrink-0" />
-            <span>
-              <strong>Panel externo ({panel.name}):</strong> Si el sitio no carga o se muestra en blanco, es debido a
-              que protege su acceso con cabeceras de seguridad (<code>X-Frame-Options: SAMEORIGIN</code>).
-            </span>
       {/* CONTENIDO PRINCIPAL SEGÚN VIEWMODE */}
       {viewMode === 'launcher' ? (
         /* VISTA DE ACCESO DIRECTO (SIN PANTALLA EN BLANCO, CON CREDENCIALES A MANO) */
@@ -395,8 +340,8 @@ export default function PanelFrame() {
                       <Badge tone="slate">
                         <Folder size={11} /> {panel.category || 'General'}
                       </Badge>
-                      <Badge tone={panel.kind === 'own' ? 'sky' : 'violet'}>
-                        {panel.kind === 'own' ? 'Propio' : 'Tercero / Externo'}
+                      <Badge tone="violet">
+                        <Globe size={11} /> Acceso directo
                       </Badge>
                     </div>
                   </div>
@@ -522,66 +467,11 @@ export default function PanelFrame() {
                 </div>
               )}
             </div>
-
-            {/* Aviso informativo de seguridad de iframes */}
-            <div className="flex items-start gap-2.5 rounded-lg border border-slate-800 bg-slate-900/40 p-3 text-xs text-slate-400">
-              <Globe size={16} className="text-sky-400 shrink-0 mt-0.5" />
-              <p>
-                <strong>¿Por qué se muestra el lanzador?</strong> Los paneles externos como OneProvider, Hetzner o AWS
-                bloquean la incrustación directa en marcos por seguridad (<code>X-Frame-Options: SAMEORIGIN</code>). Con esta vista
-                accedes directamente con un clic y tienes tus contraseñas listas para pegar sin ver pantallas en blanco.
-              </p>
-            </div>
           </div>
-          <button
-            onClick={openInNewTab}
-            className="flex items-center gap-1 font-semibold text-sky-300 hover:text-sky-200 underline underline-offset-2 shrink-0"
-          >
-            <ExternalLink size={12} /> Abrir {panel.name} en pestaña nueva
-          </button>
         </div>
-      )}
       ) : (
-        /* VISTA DE MARCO EMBEBIDO (IFRAME) */
+        /* VISTA DE MARCO EMBEBIDO (IFRAME LIMPIO SIN AVISOS MOLESTOS) */
         <div className="flex flex-1 flex-col">
-          {/* Barra de estado / aviso si es de terceros */}
-          {!isOwn && (
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-500/30 bg-amber-950/40 px-4 py-1.5 text-xs text-amber-200">
-              <div className="flex items-center gap-2">
-                <Globe size={14} className="text-amber-400 shrink-0" />
-                <span>
-                  Si la página se muestra en blanco, usa el botón <strong>«Acceso directo»</strong> o <strong>«Pestaña nueva»</strong>.
-                </span>
-              </div>
-              <button
-                onClick={() => setViewMode('launcher')}
-                className="font-semibold text-sky-300 hover:text-sky-200 underline underline-offset-2"
-              >
-                Volver a la vista de acceso directo
-              </button>
-            </div>
-          )}
-
-      {/* Estado del auto-login (solo paneles propios) */}
-      {isOwn && (status !== 'idle' || message) && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-slate-800/60 bg-slate-950/60 px-4 py-1 text-xs">
-          {!selected && (
-            <span className="text-slate-400">
-              No tienes credenciales guardadas de este panel:{' '}
-              <Link to="/vault" className="text-sky-400 hover:underline">
-                añádelas en la Bóveda
-              </Link>{' '}
-              o edita el panel para el auto-login automático.
-            </span>
-          )}
-          {selected && status !== 'error' && status !== 'idle' && (
-            <span
-              className={clsx(
-                status === 'done'
-                  ? 'text-emerald-400 font-medium'
-                  : status === 'requesting' || status === 'sent'
-                  ? 'text-sky-300'
-                  : 'text-slate-400'
           {/* Estado del auto-login (solo paneles propios) */}
           {isOwn && (status !== 'idle' || message) && (
             <div className="flex flex-wrap items-center gap-2 border-b border-slate-800/60 bg-slate-950/60 px-4 py-1 text-xs">
@@ -598,15 +488,11 @@ export default function PanelFrame() {
                   {statusText[status]}
                 </span>
               )}
-            >
-              {statusText[status]}
-            </span>
               {status === 'error' && <span className="text-red-400">Error: {message}</span>}
             </div>
           )}
-          {status === 'error' && <span className="text-red-400">Error: {message}</span>}
 
-          {/* Iframe */}
+          {/* Iframe a pantalla completa */}
           <iframe
             key={reloadKey}
             ref={iframeRef}
@@ -617,16 +503,6 @@ export default function PanelFrame() {
           />
         </div>
       )}
-
-      {/* Marco interactivo */}
-      <iframe
-        key={reloadKey}
-        ref={iframeRef}
-        src={panel.url}
-        title={panel.name}
-        className="min-h-0 flex-1 border-0 bg-white"
-        allow="clipboard-write; camera; microphone; geolocation"
-      />
     </div>
   )
 }
