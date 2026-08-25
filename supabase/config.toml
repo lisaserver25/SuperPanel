@@ -1,0 +1,4 @@
+project_id = "superpaneles"
+
+[functions.panel-login]
+verify_jwt = true
