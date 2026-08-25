@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
 import {
+  Check,
   ChevronDown,
   ExternalLink,
   Folder,
@@ -19,7 +20,15 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { useTabs } from '../lib/tabs'
-import { fetchBrandingSettings, fetchCredentials, fetchPanels, updateMyMenuStyle } from '../lib/queries'
+import {
+  fetchBrandingSettings,
+  fetchCredentials,
+  fetchPanels,
+  updateMyAccent,
+  updateMyMenuStyle,
+  updateMyThemeMode,
+} from '../lib/queries'
+import { ACCENTS, THEME_MODES, useTheme } from '../lib/theme'
 import { supabase } from '../lib/supabase'
 import { Badge } from './ui'
 import type { MenuStyle, Panel } from '../lib/types'
@@ -27,7 +36,7 @@ import type { MenuStyle, Panel } from '../lib/types'
 const STYLE_OPTIONS: { value: MenuStyle; label: string; icon: typeof PanelTop; hint: string }[] = [
   { value: 'top', label: 'Barra superior', icon: PanelTop, hint: 'Menú compacto arriba' },
   { value: 'side', label: 'Lateral', icon: PanelLeft, hint: 'Menú vertical a la izquierda' },
-  { value: 'dock', label: 'Flotante inferior', icon: PanelBottom, hint: 'Dock flotante estilo iOS' },
+  { value: 'dock', label: 'Flotante inferior', icon: PanelBottom, hint: 'Dock flotante superpuesto estilo iOS' },
 ]
 
 function readStoredStyle(): MenuStyle | null {
@@ -39,9 +48,16 @@ function readStoredStyle(): MenuStyle | null {
   }
 }
 
-// Selector de estilo de menú (preferencia personal del usuario)
-function StyleSelector({ current, onPick }: { current: MenuStyle; onPick: (s: MenuStyle) => void }) {
+// Menú de apariencia: estilo del menú (con vista previa), tema y color de acento
+function AppearanceMenu({
+  currentStyle,
+  onPreviewStyle,
+}: {
+  currentStyle: MenuStyle
+  onPreviewStyle: (s: MenuStyle) => void
+}) {
   const [open, setOpen] = useState(false)
+  const { mode, accent, setMode, setAccent } = useTheme()
   const ref = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -52,7 +68,15 @@ function StyleSelector({ current, onPick }: { current: MenuStyle; onPick: (s: Me
     return () => document.removeEventListener('mousedown', onClickOutside)
   }, [open])
 
-  const CurrentIcon = STYLE_OPTIONS.find((o) => o.value === current)?.icon ?? PanelBottom
+  async function pickMode(m: 'dark' | 'light' | 'system') {
+    setMode(m)
+    await updateMyThemeMode(m).catch(() => {})
+  }
+
+  async function pickAccent(a: 'sky' | 'violet' | 'emerald' | 'amber' | 'rose' | 'cyan') {
+    setAccent(a)
+    await updateMyAccent(a).catch(() => {})
+  }
 
   return (
     <div className="relative" ref={ref}>
@@ -64,27 +88,28 @@ function StyleSelector({ current, onPick }: { current: MenuStyle; onPick: (s: Me
             ? 'border-sky-500 bg-sky-500/15 text-sky-200'
             : 'border-slate-700 bg-slate-800/80 text-slate-300 hover:border-slate-600 hover:text-white'
         )}
-        title="Cambiar estilo del menú (preferencia personal)"
+        title="Apariencia: menú, tema y color"
       >
-        <CurrentIcon size={13} />
-        <span className="hidden lg:inline">Menú</span>
+        <Palette size={13} />
+        <span className="hidden lg:inline">Apariencia</span>
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1.5 w-52 rounded-xl border border-slate-800 bg-slate-900 p-1.5 shadow-2xl">
-          <p className="px-2 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <div className="absolute right-0 top-full z-50 mt-1.5 w-64 rounded-xl border border-slate-800 bg-slate-900 p-2 shadow-2xl">
+          {/* Estilo del menú (se previsualiza y se confirma en una barra flotante) */}
+          <p className="px-1.5 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
             Estilo del menú
           </p>
           {STYLE_OPTIONS.map(({ value, label, icon: Icon, hint }) => (
             <button
               key={value}
               onClick={() => {
-                onPick(value)
+                onPreviewStyle(value)
                 setOpen(false)
               }}
               className={clsx(
                 'flex w-full items-start gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors',
-                current === value ? 'bg-sky-500/15 text-sky-200' : 'text-slate-300 hover:bg-slate-800'
+                currentStyle === value ? 'bg-sky-500/15 text-sky-200' : 'text-slate-300 hover:bg-slate-800'
               )}
             >
               <Icon size={14} className="mt-0.5 shrink-0" />
@@ -92,10 +117,80 @@ function StyleSelector({ current, onPick }: { current: MenuStyle; onPick: (s: Me
                 <span className="block font-medium">{label}</span>
                 <span className="block text-[10px] text-slate-500">{hint}</span>
               </span>
+              {currentStyle === value && <Check size={13} className="ml-auto mt-0.5 shrink-0 text-sky-400" />}
             </button>
           ))}
+
+          {/* Tema */}
+          <p className="px-1.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Tema</p>
+          <div className="flex gap-1 px-1">
+            {THEME_MODES.map((t) => (
+              <button
+                key={t.value}
+                onClick={() => pickMode(t.value)}
+                className={clsx(
+                  'flex-1 rounded-md border px-1.5 py-1 text-[11px] font-medium transition-colors',
+                  mode === t.value
+                    ? 'border-sky-500 bg-sky-500/15 text-sky-200'
+                    : 'border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-600'
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Color de acento */}
+          <p className="px-1.5 pb-1.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+            Color de acento
+          </p>
+          <div className="flex items-center justify-between gap-1 px-1.5 pb-1">
+            {ACCENTS.map((a) => (
+              <button
+                key={a.value}
+                onClick={() => pickAccent(a.value)}
+                className={clsx(
+                  'grid h-7 w-7 place-items-center rounded-full transition-transform hover:scale-110',
+                  accent === a.value && 'ring-2 ring-offset-2 ring-offset-slate-900'
+                )}
+                style={{
+                  backgroundColor: a.swatch,
+                  boxShadow: accent === a.value ? `0 0 0 2px ${a.swatch}` : undefined,
+                }}
+                title={a.label}
+              >
+                {accent === a.value && <Check size={13} className="text-white drop-shadow" />}
+              </button>
+            ))}
+          </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// Barra de confirmación de la vista previa del estilo de menú
+function PreviewBar({ style, onAccept, onCancel }: { style: MenuStyle; onAccept: () => void; onCancel: () => void }) {
+  const label = STYLE_OPTIONS.find((s) => s.value === style)?.label ?? style
+  return (
+    <div className="fixed left-1/2 top-3 z-[60] -translate-x-1/2 animate-in fade-in-50 zoom-in-95">
+      <div className="flex items-center gap-3 rounded-full border border-sky-500/50 bg-slate-900/95 py-1.5 pl-4 pr-1.5 text-xs shadow-2xl backdrop-blur">
+        <span className="text-slate-200">
+          Vista previa: <strong className="text-sky-300">{label}</strong>
+        </span>
+        <button
+          onClick={onAccept}
+          className="flex items-center gap-1 rounded-full bg-sky-500 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-sky-400"
+        >
+          <Check size={12} /> Aceptar
+        </button>
+        <button
+          onClick={onCancel}
+          className="flex items-center gap-1 rounded-full border border-slate-600 px-2.5 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-800"
+        >
+          <X size={12} /> Cancelar
+        </button>
+      </div>
     </div>
   )
 }
@@ -361,6 +456,7 @@ export default function Layout() {
   const { openPanelTab } = useTabs()
   const navigate = useNavigate()
   const qc = useQueryClient()
+  const { setMode, setAccent } = useTheme()
 
   const settingsQuery = useQuery({ queryKey: ['super-settings'], queryFn: fetchBrandingSettings })
   const panelsQuery = useQuery({ queryKey: ['panels'], queryFn: fetchPanels })
@@ -370,19 +466,54 @@ export default function Layout() {
   const credentials = credsQuery.data ?? []
   const credPanelIds = useMemo(() => new Set(credentials.map((c) => c.panel_id)), [credentials])
 
-  // Estilo de menú: preferencia local inmediata → perfil del usuario → por defecto del hub
+  // Estilo de menú: vista previa → preferencia local → perfil → por defecto del hub
   const [localStyle, setLocalStyle] = useState<MenuStyle | null>(readStoredStyle)
+  const [previewStyle, setPreviewStyle] = useState<MenuStyle | null>(null)
   const menuStyle: MenuStyle =
-    localStyle ?? profile?.menu_style ?? settingsQuery.data?.default_menu_style ?? 'dock'
+    previewStyle ?? localStyle ?? profile?.menu_style ?? settingsQuery.data?.default_menu_style ?? 'dock'
 
-  async function pickStyle(s: MenuStyle) {
+  // Primera carga: adoptar tema/acentos del perfil (o del hub) si no hay elección local
+  useEffect(() => {
+    if (!profile) return
+    try {
+      if (!localStorage.getItem('sp_theme_adopted')) {
+        const wantedMode = profile.theme_mode ?? settingsQuery.data?.default_theme_mode
+        const wantedAccent = profile.accent ?? settingsQuery.data?.default_accent
+        if (wantedMode) {
+          setMode(wantedMode)
+          localStorage.setItem('sp_theme_mode', wantedMode)
+        }
+        if (wantedAccent) {
+          setAccent(wantedAccent)
+          localStorage.setItem('sp_accent', wantedAccent)
+        }
+        localStorage.setItem('sp_theme_adopted', '1')
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [profile, settingsQuery.data, setMode, setAccent])
+
+  function startPreview(s: MenuStyle) {
+    if (s === menuStyle && !previewStyle) return
+    setPreviewStyle(s)
+  }
+
+  async function acceptPreview() {
+    const s = previewStyle
+    if (!s) return
     setLocalStyle(s)
+    setPreviewStyle(null)
     try {
       await updateMyMenuStyle(s)
       await qc.invalidateQueries({ queryKey: ['profile'] })
     } catch {
       /* la preferencia local ya quedó aplicada */
     }
+  }
+
+  function cancelPreview() {
+    setPreviewStyle(null)
   }
 
   async function handleLogout() {
@@ -409,15 +540,22 @@ export default function Layout() {
   )
 
   const content = (
-    <main className={clsx('flex min-h-0 flex-1 flex-col overflow-y-auto', menuStyle === 'dock' && 'pb-24')}>
+    <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <Outlet />
     </main>
   )
+
+  const previewBar = previewStyle ? (
+    <PreviewBar style={previewStyle} onAccept={acceptPreview} onCancel={cancelPreview} />
+  ) : null
+
+  const appearance = <AppearanceMenu currentStyle={menuStyle} onPreviewStyle={startPreview} />
 
   // ---------------------------------------------------------------- DOCK (iOS)
   if (menuStyle === 'dock') {
     return (
       <div className="flex h-screen flex-col overflow-hidden bg-slate-950 text-slate-100">
+        {previewBar}
         <header className="shrink-0 border-b border-slate-800 bg-slate-900/95 backdrop-blur z-40">
           <div className="mx-auto flex max-w-7xl items-center gap-3 px-3 py-1.5">
             {brand}
@@ -426,7 +564,7 @@ export default function Layout() {
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-2 text-xs text-slate-400">
               <span className="hidden max-w-[160px] truncate xl:block">{user?.email}</span>
-              <StyleSelector current={menuStyle} onPick={pickStyle} />
+              {appearance}
             </div>
           </div>
         </header>
@@ -448,6 +586,7 @@ export default function Layout() {
   if (menuStyle === 'side') {
     return (
       <div className="flex h-screen overflow-hidden bg-slate-950 text-slate-100">
+        {previewBar}
         <aside className="flex w-52 shrink-0 flex-col border-r border-slate-800 bg-slate-900/95">
           <div className="px-3 py-2.5">{brand}</div>
 
@@ -473,7 +612,7 @@ export default function Layout() {
           </nav>
 
           <div className="mt-auto space-y-2 border-t border-slate-800 p-2.5">
-            <StyleSelector current={menuStyle} onPick={pickStyle} />
+            {appearance}
             <div className="flex items-center justify-between gap-2 text-xs text-slate-400">
               <span className="truncate" title={user?.email}>
                 {user?.email}
@@ -498,6 +637,7 @@ export default function Layout() {
   // -------------------------------------------------------------- BARRA SUPERIOR
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-slate-950 text-slate-100">
+      {previewBar}
       <header className="shrink-0 border-b border-slate-800 bg-slate-900/95 backdrop-blur z-40">
         <div className="mx-auto flex max-w-7xl items-center gap-2.5 px-3 py-1.5">
           {brand}
@@ -524,7 +664,7 @@ export default function Layout() {
 
           <div className="ml-auto flex items-center gap-2 text-xs text-slate-400">
             <span className="hidden max-w-[180px] truncate lg:block">{user?.email}</span>
-            <StyleSelector current={menuStyle} onPick={pickStyle} />
+            {appearance}
             <button className="btn-ghost text-xs px-2 py-1" onClick={handleLogout}>
               <LogOut size={13} /> <span className="hidden sm:inline">Salir</span>
             </button>

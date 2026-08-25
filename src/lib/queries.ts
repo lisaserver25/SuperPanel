@@ -24,7 +24,7 @@ const CRED_COLUMNS = 'id, panel_id, owner_id, label, username, notes, created_at
 export async function fetchProfile(userId: string): Promise<Profile | null> {
   const { data, error } = await supabase
     .from('super_profiles')
-    .select('id, email, full_name, role, created_at, menu_style')
+    .select('id, email, full_name, role, created_at, menu_style, theme_mode, accent')
     .eq('id', userId)
     .maybeSingle()
   if (error) throw error
@@ -87,14 +87,14 @@ export async function fetchBrandingSettings(): Promise<BrandingSettings> {
   try {
     const { data } = await supabase
       .from('super_settings')
-      .select('site_name, default_menu_style')
+      .select('site_name, default_menu_style, default_theme_mode, default_accent')
       .eq('id', 1)
       .maybeSingle()
     if (data) return data as BrandingSettings
   } catch {
     /* sin tabla todavía */
   }
-  return { site_name: 'SuperPanel', default_menu_style: 'dock' }
+  return { site_name: 'SuperPanel', default_menu_style: 'dock', default_theme_mode: 'dark', default_accent: 'sky' }
 }
 
 export async function saveBrandingSettings(input: BrandingSettings): Promise<void> {
@@ -103,13 +103,24 @@ export async function saveBrandingSettings(input: BrandingSettings): Promise<voi
     .update({
       site_name: input.site_name.trim() || 'SuperPanel',
       default_menu_style: input.default_menu_style,
+      default_theme_mode: input.default_theme_mode,
+      default_accent: input.default_accent,
       updated_at: new Date().toISOString(),
     })
     .eq('id', 1)
   if (error) throw error
 }
 
-// --- Estilo de menú preferido por usuario ---
+// --- Apariencia preferida por usuario (menú, tema y acento) ---
+
+async function updateMyProfilePatch(patch: Record<string, unknown>): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return
+  const { error } = await supabase.from('super_profiles').update(patch).eq('id', user.id)
+  if (error) throw error
+}
 
 export async function updateMyMenuStyle(style: MenuStyle): Promise<void> {
   try {
@@ -117,8 +128,25 @@ export async function updateMyMenuStyle(style: MenuStyle): Promise<void> {
   } catch {
     /* ignore */
   }
-  const { error } = await supabase.from('super_profiles').update({ menu_style: style }).eq('id', (await supabase.auth.getUser()).data.user?.id ?? '')
-  if (error) throw error
+  await updateMyProfilePatch({ menu_style: style })
+}
+
+export async function updateMyThemeMode(mode: 'dark' | 'light' | 'system'): Promise<void> {
+  try {
+    localStorage.setItem('sp_theme_mode', mode)
+  } catch {
+    /* ignore */
+  }
+  await updateMyProfilePatch({ theme_mode: mode })
+}
+
+export async function updateMyAccent(accent: 'sky' | 'violet' | 'emerald' | 'amber' | 'rose' | 'cyan'): Promise<void> {
+  try {
+    localStorage.setItem('sp_accent', accent)
+  } catch {
+    /* ignore */
+  }
+  await updateMyProfilePatch({ accent })
 }
 
 export async function fetchPanels(): Promise<Panel[]> {

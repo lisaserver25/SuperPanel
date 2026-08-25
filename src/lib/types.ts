@@ -1,5 +1,7 @@
 export type PanelKind = 'own' | 'third'
 export type MenuStyle = 'top' | 'side' | 'dock'
+export type ThemeMode = 'dark' | 'light' | 'system'
+export type AccentColor = 'sky' | 'violet' | 'emerald' | 'amber' | 'rose' | 'cyan'
 
 export interface Profile {
   id: string
@@ -8,11 +10,15 @@ export interface Profile {
   role: 'superadmin' | 'user'
   created_at: string
   menu_style?: MenuStyle | null
+  theme_mode?: ThemeMode | null
+  accent?: AccentColor | null
 }
 
 export interface BrandingSettings {
   site_name: string
   default_menu_style: MenuStyle
+  default_theme_mode: ThemeMode
+  default_accent: AccentColor
 }
 
 export interface PanelLogo {

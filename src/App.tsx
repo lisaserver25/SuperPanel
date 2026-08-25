@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { AuthProvider, useAuth } from './lib/auth'
 import { TabsProvider } from './lib/tabs'
+import { ThemeProvider, applyStoredThemeEarly } from './lib/theme'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -10,6 +11,9 @@ import PanelFrame from './pages/PanelFrame'
 import Vault from './pages/Vault'
 import AdminUsers from './pages/AdminUsers'
 import AdminBranding from './pages/AdminBranding'
+
+// Aplica tema/acentos guardados antes del primer render (evita destello)
+applyStoredThemeEarly()
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -32,39 +36,41 @@ function RequireSuperadmin({ children }: { children: ReactNode }) {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <HashRouter>
-          <TabsProvider>
-            <Routes>
-              <Route path="/login" element={<Login />} />
-              <Route element={<RequireAuth />}>
-                <Route element={<Layout />}>
-                  <Route index element={<Dashboard />} />
-                  <Route path="panels/:id" element={<PanelFrame />} />
-                  <Route path="vault" element={<Vault />} />
-                  <Route
-                    path="admin/users"
-                    element={
-                      <RequireSuperadmin>
-                        <AdminUsers />
-                      </RequireSuperadmin>
-                    }
-                  />
-                  <Route
-                    path="admin/branding"
-                    element={
-                      <RequireSuperadmin>
-                        <AdminBranding />
-                      </RequireSuperadmin>
-                    }
-                  />
+      <ThemeProvider>
+        <AuthProvider>
+          <HashRouter>
+            <TabsProvider>
+              <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route element={<RequireAuth />}>
+                  <Route element={<Layout />}>
+                    <Route index element={<Dashboard />} />
+                    <Route path="panels/:id" element={<PanelFrame />} />
+                    <Route path="vault" element={<Vault />} />
+                    <Route
+                      path="admin/users"
+                      element={
+                        <RequireSuperadmin>
+                          <AdminUsers />
+                        </RequireSuperadmin>
+                      }
+                    />
+                    <Route
+                      path="admin/branding"
+                      element={
+                        <RequireSuperadmin>
+                          <AdminBranding />
+                        </RequireSuperadmin>
+                      }
+                    />
+                  </Route>
                 </Route>
-              </Route>
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </TabsProvider>
-        </HashRouter>
-      </AuthProvider>
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </TabsProvider>
+          </HashRouter>
+        </AuthProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   )
 }

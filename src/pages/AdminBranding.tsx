@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ImagePlus, RefreshCw, Search, Trash2 } from 'lucide-react'
+import { Check, ImagePlus, RefreshCw, Search, Trash2 } from 'lucide-react'
 import {
   autoLogoForUrl,
   deletePanelLogo,
@@ -9,8 +9,9 @@ import {
   saveBrandingSettings,
   upsertPanelLogo,
 } from '../lib/queries'
+import { ACCENTS, THEME_MODES } from '../lib/theme'
 import { Button, EmptyState, Field, Input, Select } from '../components/ui'
-import type { MenuStyle } from '../lib/types'
+import type { AccentColor, MenuStyle, ThemeMode } from '../lib/types'
 
 const STYLE_LABELS: Record<MenuStyle, string> = {
   top: 'Barra superior',
@@ -25,6 +26,8 @@ export default function AdminBranding() {
 
   const [siteName, setSiteName] = useState('SuperPanel')
   const [defaultStyle, setDefaultStyle] = useState<MenuStyle>('dock')
+  const [defaultMode, setDefaultMode] = useState<ThemeMode>('dark')
+  const [defaultAccent, setDefaultAccent] = useState<AccentColor>('sky')
   const [savingSettings, setSavingSettings] = useState(false)
   const [settingsMsg, setSettingsMsg] = useState('')
 
@@ -40,6 +43,8 @@ export default function AdminBranding() {
     if (settingsQuery.data) {
       setSiteName(settingsQuery.data.site_name)
       setDefaultStyle(settingsQuery.data.default_menu_style)
+      setDefaultMode(settingsQuery.data.default_theme_mode)
+      setDefaultAccent(settingsQuery.data.default_accent)
     }
   }, [settingsQuery.data])
 
@@ -50,7 +55,12 @@ export default function AdminBranding() {
     setSavingSettings(true)
     setSettingsMsg('')
     try {
-      await saveBrandingSettings({ site_name: siteName.trim() || 'SuperPanel', default_menu_style: defaultStyle })
+      await saveBrandingSettings({
+        site_name: siteName.trim() || 'SuperPanel',
+        default_menu_style: defaultStyle,
+        default_theme_mode: defaultMode,
+        default_accent: defaultAccent,
+      })
       await qc.invalidateQueries({ queryKey: ['super-settings'] })
       setSettingsMsg('Guardado')
       window.setTimeout(() => setSettingsMsg(''), 2000)
@@ -137,9 +147,43 @@ export default function AdminBranding() {
               ))}
             </Select>
           </Field>
+          <Field label="Tema por defecto">
+            <Select value={defaultMode} onChange={(e) => setDefaultMode(e.target.value as ThemeMode)}>
+              {THEME_MODES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Color de acento por defecto">
+            <div className="flex flex-wrap items-center gap-2 pt-1.5">
+              {ACCENTS.map((a) => (
+                <button
+                  key={a.value}
+                  type="button"
+                  onClick={() => setDefaultAccent(a.value)}
+                  className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
+                  style={{
+                    borderColor: defaultAccent === a.value ? a.swatch : undefined,
+                    color: defaultAccent === a.value ? a.swatch : undefined,
+                  }}
+                >
+                  <span
+                    className="grid h-4 w-4 place-items-center rounded-full"
+                    style={{ backgroundColor: a.swatch }}
+                  >
+                    {defaultAccent === a.value && <Check size={10} className="text-white drop-shadow" />}
+                  </span>
+                  {a.label}
+                </button>
+              ))}
+            </div>
+          </Field>
         </div>
         <p className="text-xs text-slate-500">
-          Cada usuario puede elegir su propio estilo desde el selector «Menú» de la interfaz; esto solo define el inicial.
+          Cada usuario puede elegir su propio menú, tema y acento desde «Apariencia» en la interfaz; esto define los
+          valores iniciales.
         </p>
         <div className="flex items-center justify-end gap-3">
           {settingsMsg && <span className="text-xs text-emerald-400">{settingsMsg}</span>}

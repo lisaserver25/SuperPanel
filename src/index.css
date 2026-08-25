@@ -31,3 +31,121 @@
     @apply mb-1 block text-xs font-medium text-slate-400;
   }
 }
+
+/* ============================================================================
+ * SISTEMA DE APARIENCIA (no está en @layer para poder ganar especificidad
+ * sobre las utilidades de Tailwind). Actúa por atributos en <html>:
+ *   data-accent="sky|violet|emerald|amber|rose|cyan"  → color de acento
+ *   data-theme="dark|light"                           → modo de tema
+ * ============================================================================ */
+
+/* --- Paletas de acento (variables por tono) --- */
+html[data-accent='sky']     { --sp-a100:#e0f2fe; --sp-a200:#bae6fd; --sp-a300:#7dd3fc; --sp-a400:#38bdf8; --sp-a500:#0ea5e9; --sp-a600:#0284c7; --sp-a800:#075985; --sp-a950:#082f49; }
+html[data-accent='violet']  { --sp-a100:#ede9fe; --sp-a200:#ddd6fe; --sp-a300:#c4b5fd; --sp-a400:#a78bfa; --sp-a500:#8b5cf6; --sp-a600:#7c3aed; --sp-a800:#5b21b6; --sp-a950:#2e1065; }
+html[data-accent='emerald'] { --sp-a100:#d1fae5; --sp-a200:#a7f3d0; --sp-a300:#6ee7b7; --sp-a400:#34d399; --sp-a500:#10b981; --sp-a600:#059669; --sp-a800:#065f46; --sp-a950:#022c22; }
+html[data-accent='amber']   { --sp-a100:#fef3c7; --sp-a200:#fde68a; --sp-a300:#fcd34d; --sp-a400:#fbbf24; --sp-a500:#f59e0b; --sp-a600:#d97706; --sp-a800:#92400e; --sp-a950:#451a03; }
+html[data-accent='rose']    { --sp-a100:#ffe4e6; --sp-a200:#fecdd3; --sp-a300:#fda4af; --sp-a400:#fb7185; --sp-a500:#f43f5e; --sp-a600:#e11d48; --sp-a800:#9f1239; --sp-a950:#4c0519; }
+html[data-accent='cyan']    { --sp-a100:#cffafe; --sp-a200:#a5f3fc; --sp-a300:#67e8f9; --sp-a400:#22d3ee; --sp-a500:#06b6d4; --sp-a600:#0891b2; --sp-a800:#155e75; --sp-a950:#083344; }
+
+/* En modo claro los tonos claros del acento se oscurecen para legibilidad */
+html[data-theme='light'] { --sp-a100: var(--sp-a800); --sp-a200: var(--sp-a600); --sp-a300: var(--sp-a500); }
+
+/* --- Remapeo de las utilidades sky-* al acento activo --- */
+html[data-accent]:not([data-accent='sky']) {
+  & .text-sky-100 { color: var(--sp-a100); }
+  & .text-sky-200 { color: var(--sp-a200); }
+  & .text-sky-300 { color: var(--sp-a300); }
+  & .text-sky-400 { color: var(--sp-a400); }
+  & .bg-sky-400 { background-color: var(--sp-a400); }
+  & .bg-sky-500 { background-color: var(--sp-a500); }
+  & .bg-sky-600 { background-color: var(--sp-a600); }
+  & .bg-sky-950 { background-color: var(--sp-a950); }
+  & .bg-sky-500\/10 { background-color: color-mix(in srgb, var(--sp-a500) 10%, transparent); }
+  & .bg-sky-500\/15 { background-color: color-mix(in srgb, var(--sp-a500) 15%, transparent); }
+  & .bg-sky-500\/20 { background-color: color-mix(in srgb, var(--sp-a500) 20%, transparent); }
+  & .bg-sky-950\/30 { background-color: color-mix(in srgb, var(--sp-a950) 30%, transparent); }
+  & .bg-sky-950\/40 { background-color: color-mix(in srgb, var(--sp-a950) 40%, transparent); }
+  & .bg-sky-950\/80 { background-color: color-mix(in srgb, var(--sp-a950) 80%, transparent); }
+  & .border-sky-500 { border-color: var(--sp-a500); }
+  & .border-sky-800 { border-color: var(--sp-a800); }
+  & .border-sky-500\/40 { border-color: color-mix(in srgb, var(--sp-a500) 40%, transparent); }
+  & .border-sky-800\/40 { border-color: color-mix(in srgb, var(--sp-a800) 40%, transparent); }
+  & .border-sky-800\/80 { border-color: color-mix(in srgb, var(--sp-a800) 80%, transparent); }
+  & .border-sky-600\/60 { border-color: color-mix(in srgb, var(--sp-a600) 60%, transparent); }
+  & .focus\:border-sky-500:focus { border-color: var(--sp-a500); }
+  & .hover\:bg-sky-500:hover { background-color: var(--sp-a500); }
+  & .hover\:text-sky-200:hover { color: var(--sp-a200); }
+  & .hover\:text-sky-300:hover { color: var(--sp-a300); }
+  & .hover\:text-sky-400:hover { color: var(--sp-a400); }
+  & .hover\:border-sky-500:hover { border-color: var(--sp-a500); }
+  & .hover\:border-sky-800:hover { border-color: var(--sp-a800); }
+  & .group:hover .group-hover\:text-sky-400 { color: var(--sp-a400); }
+  & .btn-primary { background-color: var(--sp-a600); }
+  & .btn-primary:hover { background-color: var(--sp-a500); }
+  & .shadow-sky-500\/20 { --tw-shadow-color: color-mix(in srgb, var(--sp-a500) 20%, transparent); }
+  & .text-sky-100 { color: var(--sp-a100); }
+}
+
+/* --- Modo claro: inversión de la escala slate --- */
+html[data-theme='light'] body { background-color: #f1f5f9; color: #0f172a; }
+
+html[data-theme='light'] {
+  & .bg-slate-950 { background-color: #f1f5f9; }
+  & .bg-slate-950\/95 { background-color: color-mix(in srgb, #f1f5f9 95%, transparent); }
+  & .bg-slate-950\/60 { background-color: color-mix(in srgb, #f1f5f9 60%, transparent); }
+  & .bg-slate-950\/40 { background-color: color-mix(in srgb, #f1f5f9 40%, transparent); }
+  & .bg-slate-900 { background-color: #ffffff; }
+  & .bg-slate-900\/95 { background-color: color-mix(in srgb, #ffffff 95%, transparent); }
+  & .bg-slate-900\/90 { background-color: color-mix(in srgb, #ffffff 90%, transparent); }
+  & .bg-slate-900\/80 { background-color: color-mix(in srgb, #ffffff 80%, transparent); }
+  & .bg-slate-900\/60 { background-color: color-mix(in srgb, #ffffff 60%, transparent); }
+  & .bg-slate-900\/50 { background-color: color-mix(in srgb, #ffffff 50%, transparent); }
+  & .bg-slate-900\/40 { background-color: color-mix(in srgb, #ffffff 40%, transparent); }
+  & .bg-slate-800 { background-color: #e2e8f0; }
+  & .bg-slate-800\/90 { background-color: color-mix(in srgb, #e2e8f0 90%, transparent); }
+  & .bg-slate-800\/80 { background-color: color-mix(in srgb, #e2e8f0 80%, transparent); }
+  & .bg-slate-800\/60 { background-color: color-mix(in srgb, #e2e8f0 60%, transparent); }
+  & .bg-slate-800\/50 { background-color: color-mix(in srgb, #e2e8f0 50%, transparent); }
+  & .bg-slate-700 { background-color: #cbd5e1; }
+  & .hover\:bg-slate-900:hover { background-color: #f8fafc; }
+  & .hover\:bg-slate-800:hover { background-color: #e2e8f0; }
+  & .hover\:bg-slate-800\/50:hover { background-color: color-mix(in srgb, #e2e8f0 50%, transparent); }
+  & .hover\:bg-slate-800\/60:hover { background-color: color-mix(in srgb, #e2e8f0 60%, transparent); }
+  & .hover\:bg-slate-700:hover { background-color: #cbd5e1; }
+
+  & .border-slate-800 { border-color: #e2e8f0; }
+  & .border-slate-800\/80 { border-color: color-mix(in srgb, #e2e8f0 80%, transparent); }
+  & .border-slate-800\/60 { border-color: color-mix(in srgb, #e2e8f0 60%, transparent); }
+  & .border-slate-700 { border-color: #cbd5e1; }
+  & .border-slate-600 { border-color: #94a3b8; }
+  & .hover\:border-slate-700:hover { border-color: #cbd5e1; }
+  & .hover\:border-slate-600:hover { border-color: #94a3b8; }
+  & .divide-slate-800 > :not([hidden]) ~ :not([hidden]) { border-color: #e2e8f0; }
+  & .divide-slate-800\/60 > :not([hidden]) ~ :not([hidden]) { border-color: color-mix(in srgb, #e2e8f0 60%, transparent); }
+  & .ring-slate-700 { --tw-ring-color: #cbd5e1; }
+
+  & .text-slate-100 { color: #0f172a; }
+  & .text-slate-200 { color: #1e293b; }
+  & .text-slate-300 { color: #334155; }
+  & .text-slate-400 { color: #475569; }
+  & .text-slate-500 { color: #64748b; }
+  & .text-slate-600 { color: #94a3b8; }
+  & .hover\:text-slate-200:hover { color: #1e293b; }
+  & .group:hover .group-hover\:text-slate-200 { color: #1e293b; }
+  & .placeholder\:text-slate-500::placeholder { color: #94a3b8; }
+
+  /* Texto blanco genérico sobre fondos claros → oscuro; se restaura donde
+     el fondo sigue siendo de acento u oscuro (botones primarios, badges) */
+  & .text-white { color: #0f172a; }
+  & .btn-primary, & .btn-danger, & .bg-sky-500, & .bg-sky-600 { color: #ffffff; }
+  & .bg-sky-500 .text-white, & .bg-sky-600 .text-white { color: #ffffff; }
+
+  /* Superficies de componentes definidas con @apply */
+  & .card { background-color: #ffffff; border-color: #e2e8f0; }
+  & .input { background-color: #ffffff; border-color: #cbd5e1; color: #0f172a; }
+  & .btn-ghost { background-color: #e2e8f0; border-color: #cbd5e1; color: #1e293b; }
+  & .btn-ghost:hover { background-color: #cbd5e1; }
+
+  /* Sombras y overlays se suavizan */
+  & .shadow-2xl { --tw-shadow-color: color-mix(in srgb, #64748b 25%, transparent); }
+}
