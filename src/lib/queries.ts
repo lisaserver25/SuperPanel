@@ -7,18 +7,118 @@ import {
   saveUserCustomCategory,
   saveUserPanelCategory,
 } from './categories'
-import type { AdminUser, Collaboration, Panel, PanelCredential, PanelShare, Profile } from './types'
+import type {
+  AdminUser,
+  BrandingSettings,
+  Collaboration,
+  MenuStyle,
+  Panel,
+  PanelCredential,
+  PanelLogo,
+  PanelShare,
+  Profile,
+} from './types'
 
 const CRED_COLUMNS = 'id, panel_id, owner_id, label, username, notes, created_at, updated_at'
 
 export async function fetchProfile(userId: string): Promise<Profile | null> {
   const { data, error } = await supabase
     .from('super_profiles')
-    .select('id, email, full_name, role, created_at')
+    .select('id, email, full_name, role, created_at, menu_style')
     .eq('id', userId)
     .maybeSingle()
   if (error) throw error
   return (data as Profile | null) ?? null
+}
+
+// --- Detección y caché de logos por dominio ---
+
+export function domainFromUrl(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./i, '').toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
+// Servicio público de favicons de Google (alta resolución)
+export function autoLogoForUrl(url: string): string | null {
+  const d = domainFromUrl(url)
+  if (!d) return null
+  return `https://www.google.com/s2/favicons?domain=${d}&sz=128`
+}
+
+async function cachePanelLogo(url: string, logoUrl: string): Promise<void> {
+  const d = domainFromUrl(url)
+  if (!d || !logoUrl) return
+  try {
+    await supabase.rpc('super_cache_panel_logo', { p_domain: d, p_logo_url: logoUrl })
+  } catch {
+    /* la caché es best-effort */
+  }
+}
+
+export async function fetchPanelLogos(): Promise<PanelLogo[]> {
+  const { data, error } = await supabase
+    .from('super_panel_logos')
+    .select('domain, logo_url, updated_at')
+    .order('domain', { ascending: true })
+  if (error) throw error
+  return (data ?? []) as PanelLogo[]
+}
+
+export async function upsertPanelLogo(domain: string, logoUrl: string): Promise<void> {
+  const d = domain.trim().toLowerCase()
+  if (!d || !logoUrl.trim()) throw new Error('Dominio y URL de logo son obligatorios')
+  const { error } = await supabase
+    .from('super_panel_logos')
+    .upsert({ domain: d, logo_url: logoUrl.trim(), updated_at: new Date().toISOString() })
+  if (error) throw error
+}
+
+export async function deletePanelLogo(domain: string): Promise<void> {
+  const { error } = await supabase.from('super_panel_logos').delete().eq('domain', domain)
+  if (error) throw error
+}
+
+// --- Ajustes de personalización del hub ---
+
+export async function fetchBrandingSettings(): Promise<BrandingSettings> {
+  try {
+    const { data } = await supabase
+      .from('super_settings')
+      .select('site_name, default_menu_style')
+      .eq('id', 1)
+      .maybeSingle()
+    if (data) return data as BrandingSettings
+  } catch {
+    /* sin tabla todavía */
+  }
+  return { site_name: 'SuperPanel', default_menu_style: 'dock' }
+}
+
+export async function saveBrandingSettings(input: BrandingSettings): Promise<void> {
+  const { error } = await supabase
+    .from('super_settings')
+    .update({
+      site_name: input.site_name.trim() || 'SuperPanel',
+      default_menu_style: input.default_menu_style,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', 1)
+  if (error) throw error
+}
+
+// --- Estilo de menú preferido por usuario ---
+
+export async function updateMyMenuStyle(style: MenuStyle): Promise<void> {
+  try {
+    localStorage.setItem('sp_menu_style', style)
+  } catch {
+    /* ignore */
+  }
+  const { error } = await supabase.from('super_profiles').update({ menu_style: style }).eq('id', (await supabase.auth.getUser()).data.user?.id ?? '')
+  if (error) throw error
 }
 
 export async function fetchPanels(): Promise<Panel[]> {
@@ -37,6 +137,29 @@ export async function fetchPanels(): Promise<Panel[]> {
 
   const panels = (rawPanels ?? []) as Panel[]
   if (panels.length === 0) return []
+
+  // 1b. Completar logos desde la caché global para paneles sin logo propio
+  const panelsNeedingLogo = panels.filter((p) => !p.logo_url)
+  if (panelsNeedingLogo.length > 0) {
+    const domains = Array.from(new Set(panelsNeedingLogo.map((p) => domainFromUrl(p.url)).filter(Boolean)))
+    if (domains.length > 0) {
+      try {
+        const { data: cachedLogos } = await supabase
+          .from('super_panel_logos')
+          .select('domain, logo_url')
+          .in('domain', domains)
+        if (cachedLogos) {
+          const logoMap = new Map(cachedLogos.map((l) => [l.domain, l.logo_url]))
+          for (const p of panelsNeedingLogo) {
+            const cached = logoMap.get(domainFromUrl(p.url))
+            if (cached) p.logo_url = cached
+          }
+        }
+      } catch {
+        /* la caché es best-effort */
+      }
+    }
+  }
 
   // 2. Obtener shares aceptados del usuario actual para enriquecer categorías personalizadas
   const sharesMap = new Map<string, { shareId: string; customCategory: string; sharedBy: string }>()
@@ -263,6 +386,12 @@ export async function savePanel(
   // Guardar en la lista de categorías del usuario
   saveUserCustomCategory(user.id, targetCategory)
 
+  // Logo final: el elegido por el usuario o el detectado automáticamente del dominio
+  const finalLogoUrl = panel.logo_url?.trim() || autoLogoForUrl(panel.url) || null
+  if (!panel.logo_url?.trim() && finalLogoUrl) {
+    await cachePanelLogo(panel.url, finalLogoUrl)
+  }
+
   let savedId = panel.id
 
   // 1. Si estamos actualizando un panel existente
@@ -273,7 +402,7 @@ export async function savePanel(
       name: panel.name.trim(),
       url: panel.url.trim(),
       kind: panel.kind,
-      logo_url: panel.logo_url ?? null,
+      logo_url: finalLogoUrl,
       notes: panel.notes ?? null,
       sort_order: panel.sort_order ?? 0,
       supabase_url: panel.kind === 'own' ? panel.supabase_url || null : null,
@@ -303,7 +432,7 @@ export async function savePanel(
             p_name: panel.name.trim(),
             p_url: panel.url.trim(),
             p_kind: panel.kind,
-            p_logo_url: panel.logo_url ?? null,
+            p_logo_url: finalLogoUrl,
             p_notes: panel.notes ?? null,
             p_sort_order: panel.sort_order ?? 0,
             p_supabase_url: panel.kind === 'own' ? panel.supabase_url || null : null,
@@ -324,7 +453,7 @@ export async function savePanel(
       name: panel.name.trim(),
       url: panel.url.trim(),
       kind: panel.kind,
-      logo_url: panel.logo_url ?? null,
+      logo_url: finalLogoUrl,
       notes: panel.notes ?? null,
       sort_order: panel.sort_order ?? 0,
       supabase_url: panel.kind === 'own' ? panel.supabase_url || null : null,
@@ -353,7 +482,7 @@ export async function savePanel(
             p_name: panel.name.trim(),
             p_url: panel.url.trim(),
             p_kind: panel.kind,
-            p_logo_url: panel.logo_url ?? null,
+            p_logo_url: finalLogoUrl,
             p_notes: panel.notes ?? null,
             p_sort_order: panel.sort_order ?? 0,
             p_supabase_url: panel.kind === 'own' ? panel.supabase_url || null : null,

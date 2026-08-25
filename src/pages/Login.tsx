@@ -1,6 +1,8 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../lib/supabase'
+import { fetchBrandingSettings } from '../lib/queries'
 import { Button, Field, Input } from '../components/ui'
 
 export default function Login() {
@@ -9,6 +11,13 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+
+  const settingsQuery = useQuery({ queryKey: ['super-settings'], queryFn: fetchBrandingSettings })
+  const siteName = settingsQuery.data?.site_name ?? 'SuperPanel'
+
+  useEffect(() => {
+    document.title = siteName
+  }, [siteName])
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -26,7 +35,7 @@ export default function Login() {
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
       <form onSubmit={onSubmit} className="card w-full max-w-sm space-y-4 p-6">
-        <h1 className="text-center text-xl font-semibold">SuperPanel</h1>
+        <h1 className="text-center text-xl font-semibold">{siteName}</h1>
         <p className="text-center text-sm text-slate-400">Acceso único a todos tus paneles</p>
         <Field label="Email">
           <Input

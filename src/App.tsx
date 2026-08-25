@@ -8,8 +8,8 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import PanelFrame from './pages/PanelFrame'
 import Vault from './pages/Vault'
-import Collaborations from './pages/Collaborations'
 import AdminUsers from './pages/AdminUsers'
+import AdminBranding from './pages/AdminBranding'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -41,13 +41,20 @@ export default function App() {
                 <Route element={<Layout />}>
                   <Route index element={<Dashboard />} />
                   <Route path="panels/:id" element={<PanelFrame />} />
-                  <Route path="shares" element={<Collaborations />} />
                   <Route path="vault" element={<Vault />} />
                   <Route
                     path="admin/users"
                     element={
                       <RequireSuperadmin>
                         <AdminUsers />
+                      </RequireSuperadmin>
+                    }
+                  />
+                  <Route
+                    path="admin/branding"
+                    element={
+                      <RequireSuperadmin>
+                        <AdminBranding />
                       </RequireSuperadmin>
                     }
                   />

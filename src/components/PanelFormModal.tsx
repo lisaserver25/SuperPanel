@@ -422,9 +422,12 @@ export default function PanelFormModal({
             <Input
               value={form.logo_url}
               onChange={(e) => setForm((f) => ({ ...f, logo_url: e.target.value }))}
-              placeholder="https://.../logo.png"
+              placeholder="Vacío = se detecta del dominio"
               className="py-1 text-xs"
             />
+            <span className="block pt-0.5 text-[10px] text-slate-500">
+              Si lo dejas vacío se obtiene automáticamente y se guarda para el resto de usuarios.
+            </span>
           </Field>
           <Field label="Notas internas (opcional)">
             <Input

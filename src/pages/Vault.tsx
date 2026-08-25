@@ -131,9 +131,9 @@ export default function Vault() {
     <div className="mx-auto max-w-4xl space-y-5 p-4">
       <div className="flex flex-wrap items-center gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Bóveda</h1>
+          <h1 className="text-2xl font-semibold">Contraseñas</h1>
           <p className="text-sm text-slate-400">
-            Credenciales privadas y aisladas, cifradas en el servidor (incluso para paneles compartidos)
+            Cuentas de acceso de tus paneles, cifradas en el servidor (incluso para paneles compartidos)
           </p>
         </div>
         <Button variant="primary" className="ml-auto" onClick={() => openCreate(panels[0]?.id ?? '')} disabled={panels.length === 0}>

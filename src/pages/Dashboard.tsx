@@ -1,5 +1,4 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
 import {
@@ -293,6 +292,17 @@ export default function Dashboard() {
       await qc.invalidateQueries({ queryKey: ['pending-panel-shares'] })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo aceptar la invitación')
+    }
+  }
+
+  async function handleRejectShare(shareId: string) {
+    setError('')
+    try {
+      await respondPanelShare(shareId, false)
+      await qc.invalidateQueries({ queryKey: ['pending-panel-shares'] })
+      await qc.invalidateQueries({ queryKey: ['panels'] })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo rechazar la invitación')
     }
   }
 
@@ -599,23 +609,43 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Banner de invitaciones de paneles pendientes */}
+      {/* Invitaciones de paneles pendientes (aceptar/rechazar en línea) */}
       {pendingShares.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-sky-500/40 bg-sky-950/30 p-3.5 text-sm">
-          <div className="flex items-center gap-2.5">
-            <Share2 className="text-sky-400 shrink-0" size={18} />
-            <div>
-              <p className="font-semibold text-slate-100">
-                Tienes {pendingShares.length} invitación{pendingShares.length > 1 ? 'es' : ''} de panel compartida{pendingShares.length > 1 ? 's' : ''}
-              </p>
-              <p className="text-xs text-slate-400">
-                Otros administradores te han dado acceso a paneles para que colabores con ellos.
-              </p>
+        <div className="space-y-2">
+          {pendingShares.map((s) => (
+            <div
+              key={s.id}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-sky-500/40 bg-sky-950/30 p-3.5 text-sm"
+            >
+              <div className="flex min-w-0 items-center gap-2.5">
+                <Share2 className="shrink-0 text-sky-400" size={18} />
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-slate-100">
+                    «{s.panel?.name ?? 'Un panel'}» compartido contigo
+                  </p>
+                  <p className="truncate text-xs text-slate-400">
+                    {s.shared_by_name ? `De: ${s.shared_by_name}. ` : ''}
+                    Acéptalo para organizarlo en una de tus categorías.
+                  </p>
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  variant="primary"
+                  className="text-xs"
+                  onClick={() => {
+                    setAcceptCategory('General')
+                    setAcceptingShare(s)
+                  }}
+                >
+                  Aceptar
+                </Button>
+                <Button className="text-xs text-red-400" onClick={() => handleRejectShare(s.id)}>
+                  Rechazar
+                </Button>
+              </div>
             </div>
-          </div>
-          <Link to="/shares" className="btn text-xs bg-sky-500 text-white hover:bg-sky-400 shadow-sm font-medium">
-            Ver y aceptar invitaciones
-          </Link>
+          ))}
         </div>
       )}
 

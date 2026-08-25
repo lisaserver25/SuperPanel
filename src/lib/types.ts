@@ -1,4 +1,5 @@
 export type PanelKind = 'own' | 'third'
+export type MenuStyle = 'top' | 'side' | 'dock'
 
 export interface Profile {
   id: string
@@ -6,6 +7,18 @@ export interface Profile {
   full_name: string | null
   role: 'superadmin' | 'user'
   created_at: string
+  menu_style?: MenuStyle | null
+}
+
+export interface BrandingSettings {
+  site_name: string
+  default_menu_style: MenuStyle
+}
+
+export interface PanelLogo {
+  domain: string
+  logo_url: string
+  updated_at: string
 }
 
 export interface Panel {
