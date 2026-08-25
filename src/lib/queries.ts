@@ -61,6 +61,28 @@ export async function fetchPanels(): Promise<Panel[]> {
     // Si la tabla de shares no existe todavía en la BD remota, continuar
   }
 
+  // 2b. Obtener shares enviados por el usuario (sus paneles compartidos con otros)
+  const outgoingSharesMap = new Map<string, { email: string; status: 'pending' | 'accepted' | 'rejected' }[]>()
+  try {
+    const { data: outShares, error: outErr } = await supabase
+      .from('super_panel_shares')
+      .select('panel_id, shared_with_email, status')
+      .eq('shared_by', user.id)
+
+    if (!outErr && outShares) {
+      for (const s of outShares) {
+        const status = s.status as 'pending' | 'accepted' | 'rejected'
+        // No mostrar los rechazados: son ruido en la lista
+        if (status === 'rejected') continue
+        const list = outgoingSharesMap.get(s.panel_id) ?? []
+        list.push({ email: s.shared_with_email, status })
+        outgoingSharesMap.set(s.panel_id, list)
+      }
+    }
+  } catch {
+    // Si la tabla de shares no existe todavía en la BD remota, continuar
+  }
+
   // 3. Obtener perfiles de propietarios si hay paneles compartidos
   const ownerIds = Array.from(new Set(panels.filter((p) => p.owner_id !== user.id).map((p) => p.owner_id)))
   const profileMap = new Map<string, string>()
@@ -102,6 +124,7 @@ export async function fetchPanels(): Promise<Panel[]> {
       is_shared: isShared,
       share_id: shareInfo?.shareId,
       shared_by_name: isShared ? profileMap.get(p.owner_id) ?? undefined : undefined,
+      shared_with_users: !isShared ? outgoingSharesMap.get(p.id) : undefined,
     }
   })
 }

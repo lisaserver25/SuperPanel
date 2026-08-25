@@ -29,6 +29,8 @@ export interface Panel {
   share_id?: string
   custom_category?: string
   owner_email?: string
+  // Usuarios con los que el propietario ha compartido este panel
+  shared_with_users?: { email: string; status: 'pending' | 'accepted' | 'rejected' }[]
 }
 
 // password_enc nunca se selecciona desde el cliente

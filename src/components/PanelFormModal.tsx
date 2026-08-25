@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { KeyRound, Lock, Share2, Trash2, UserCheck, UserPlus, Users } from 'lucide-react'
+import { KeyRound, Lock, Share2, Trash2, UserPlus, Users } from 'lucide-react'
 import { Badge, Button, Field, Input, Modal, Select } from './ui'
 import {
   fetchAcceptedCollaborators,
@@ -173,12 +173,6 @@ export default function PanelFormModal({
     return existingShares.filter((s) => !sharesToDelete.includes(s.id))
   }, [existingShares, sharesToDelete])
 
-  function toggleCollab(email: string) {
-    const norm = email.toLowerCase()
-    setSelectedCollabs((prev) =>
-      prev.includes(norm) ? prev.filter((e) => e !== norm) : [...prev, norm]
-    )
-  }
 
   function handleSelectHistoricalUser(email: string) {
     if (!email) return

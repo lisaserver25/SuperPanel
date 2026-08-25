@@ -47,6 +47,11 @@ function hostname(url: string): string {
   }
 }
 
+function emailPrefix(email: string): string {
+  const [local] = email.split('@')
+  return local.length > 14 ? `${local.slice(0, 13)}…` : local
+}
+
 export default function Dashboard() {
   const { user } = useAuth()
   const qc = useQueryClient()
@@ -384,13 +389,30 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Columna: usuarios con los que se comparte este panel (solo paneles propios) */}
+        {!p.is_shared && p.shared_with_users && p.shared_with_users.length > 0 && (
+          <div className="hidden md:flex flex-col items-end gap-1 max-w-[240px] shrink-0">
+            <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              <Share2 size={10} /> Compartido con
+            </span>
+            <div className="flex flex-wrap justify-end gap-1">
+              {p.shared_with_users.map((u) => (
+                <Badge key={u.email} tone={u.status === 'accepted' ? 'green' : 'slate'}>
+                  {emailPrefix(u.email)}
+                  {u.status === 'pending' ? ' ·' : ''}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center gap-2 shrink-0 self-end md:self-center pt-2 md:pt-0 border-t md:border-t-0 border-slate-800/60 w-full md:w-auto justify-end">
           <Button
             variant="primary"
             className="px-3 py-1.5 text-xs flex items-center gap-1.5 shadow-sm shadow-sky-500/20"
             onClick={() => openPanelTab(p)}
           >
-            Abrir pestaña
+            Abrir
           </Button>
 
           <a
@@ -488,6 +510,21 @@ export default function Dashboard() {
             )}
           </div>
 
+          {!p.is_shared && p.shared_with_users && p.shared_with_users.length > 0 && (
+            <div
+              className="mt-2 flex flex-wrap items-center gap-1"
+              title={`Compartido con: ${p.shared_with_users.map((u) => `${u.email} (${u.status === 'accepted' ? 'aceptado' : 'pendiente'})`).join(', ')}`}
+            >
+              <Share2 size={11} className="text-slate-500 shrink-0" />
+              {p.shared_with_users.map((u) => (
+                <Badge key={u.email} tone={u.status === 'accepted' ? 'green' : 'slate'}>
+                  {emailPrefix(u.email)}
+                  {u.status === 'pending' ? ' ·' : ''}
+                </Badge>
+              ))}
+            </div>
+          )}
+
           {p.notes && (
             <p className="mt-2 text-xs text-slate-400 line-clamp-1 italic">
               {p.notes}
@@ -501,7 +538,7 @@ export default function Dashboard() {
             className="px-2.5 py-1 text-xs"
             onClick={() => openPanelTab(p)}
           >
-            Abrir pestaña
+            Abrir
           </Button>
 
           <div className="flex items-center gap-1">
