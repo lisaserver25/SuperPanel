@@ -567,11 +567,17 @@ export async function renameCategory(oldName: string, newName: string): Promise<
 
   // 2. Actualizar paneles propios que tengan esta categoría
   try {
+    const { error: errPanels } = await supabase
     await supabase
       .from('super_panels')
       .update({ category: trimmedNew, updated_at: new Date().toISOString() })
       .eq('owner_id', user.id)
       .eq('category', trimmedOld)
+    if (errPanels) {
+      console.warn('Advertencia al renombrar paneles propios:', errPanels)
+    }
+  } catch (e) {
+    console.warn(e)
   } catch {
     /* ignore */
   }
@@ -584,6 +590,8 @@ export async function renameCategory(oldName: string, newName: string): Promise<
       .update({ custom_category: trimmedNew, updated_at: new Date().toISOString() })
       .or(`shared_with_id.eq.${user.id},shared_with_email.ilike.${userEmail}`)
       .eq('custom_category', trimmedOld)
+  } catch (e) {
+    console.warn(e)
   } catch {
     /* ignore */
   }

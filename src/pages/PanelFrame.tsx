@@ -190,6 +190,8 @@ export default function PanelFrame() {
       await navigator.clipboard.writeText(text)
       setCopied(what)
       window.setTimeout(() => setCopied(''), 2000)
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'No se pudo copiar')
     } catch {
       setMessage('No se pudo copiar al portapapeles')
     }
@@ -205,6 +207,8 @@ export default function PanelFrame() {
     try {
       const pw = await revealCredential(selected.id)
       setRevealedPassword(pw)
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'No se pudo descifrar la contraseña')
       // Auto-ocultar tras 10 segundos por seguridad
       window.setTimeout(() => {
         setRevealedPassword((curr) => (curr === pw ? null : curr))

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { KeyRound, Lock, Share2, Trash2, UserCheck, UserPlus, Users } from 'lucide-react'
 import { KeyRound, Lock, Share2, Trash2, UserPlus, Users } from 'lucide-react'
 import { Badge, Button, Field, Input, Modal, Select } from './ui'
 import {
@@ -173,6 +174,12 @@ export default function PanelFormModal({
     return existingShares.filter((s) => !sharesToDelete.includes(s.id))
   }, [existingShares, sharesToDelete])
 
+  function toggleCollab(email: string) {
+    const norm = email.toLowerCase()
+    setSelectedCollabs((prev) =>
+      prev.includes(norm) ? prev.filter((e) => e !== norm) : [...prev, norm]
+    )
+  }
 
   function handleSelectHistoricalUser(email: string) {
     if (!email) return
@@ -261,8 +268,8 @@ export default function PanelFormModal({
           label: 'Acceso principal',
           username: form.auth_username.trim(),
           password: form.auth_password || undefined,
-        }).catch(() => {
-          /* error silencioso sin exponer credencial a consola */
+        }).catch((err) => {
+          console.warn('Error al guardar credencial integrada:', err)
         })
       }
 
@@ -408,10 +415,6 @@ export default function PanelFormModal({
                   onChange={(e) => setForm((f) => ({ ...f, auth_password: e.target.value }))}
                   placeholder={form.existing_cred_id ? '•••••••• (sin cambios)' : '••••••••'}
                   autoComplete="new-password"
-                  autoCapitalize="off"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  data-lpignore="true"
                   className="py-1 pr-7 text-xs"
                 />
                 <Lock size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
@@ -426,12 +429,9 @@ export default function PanelFormModal({
             <Input
               value={form.logo_url}
               onChange={(e) => setForm((f) => ({ ...f, logo_url: e.target.value }))}
-              placeholder="Vacío = se detecta del dominio"
+              placeholder="https://.../logo.png"
               className="py-1 text-xs"
             />
-            <span className="block pt-0.5 text-[10px] text-slate-500">
-              Si lo dejas vacío se obtiene automáticamente y se guarda para el resto de usuarios.
-            </span>
           </Field>
           <Field label="Notas internas (opcional)">
             <Input

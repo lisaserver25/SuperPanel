@@ -250,6 +250,7 @@ export default function Vault() {
           </Field>
           {error && <p className="text-sm text-red-400">{error}</p>}
           <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" onClick={() => setFormOpen(false)}>
             <Button type="button" onClick={() => { setFormOpen(false); setForm(emptyForm) }}>
               Cancelar
             </Button>

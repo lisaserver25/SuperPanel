@@ -565,6 +565,7 @@ export default function Layout() {
               <TabStrip />
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-2 text-xs text-slate-400">
+              <span className="hidden max-w-[160px] truncate xl:block">{user?.email}</span>
               <span className="hidden max-w-[160px] truncate xl:block">{userDisplayName}</span>
               {appearance}
             </div>
@@ -616,6 +617,8 @@ export default function Layout() {
           <div className="mt-auto space-y-2 border-t border-slate-800 p-2.5">
             {appearance}
             <div className="flex items-center justify-between gap-2 text-xs text-slate-400">
+              <span className="truncate" title={user?.email}>
+                {user?.email}
               <span className="truncate">
                 {userDisplayName}
               </span>
@@ -665,6 +668,7 @@ export default function Layout() {
           </nav>
 
           <div className="ml-auto flex items-center gap-2 text-xs text-slate-400">
+            <span className="hidden max-w-[180px] truncate lg:block">{user?.email}</span>
             <span className="hidden max-w-[180px] truncate lg:block">{userDisplayName}</span>
             {appearance}
             <button className="btn-ghost text-xs px-2 py-1" onClick={handleLogout}>
