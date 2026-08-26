@@ -39,7 +39,7 @@ export default function PanelFrame() {
   const credsQuery = useQuery({ queryKey: ['credentials'], queryFn: fetchCredentials })
 
   const panel = panelQuery.data ?? null
-  const isOwn = panel?.kind === 'own'
+  const isOwn = panel?.kind === 'own' && Boolean(panel?.supabase_url)
 
   // Recordar si el panel se visualiza embebido o como acceso directo
   const [viewMode, setViewMode] = useState<'launcher' | 'frame'>('frame')
@@ -177,6 +177,12 @@ export default function PanelFrame() {
     }
   }, [isOwn, selected?.id, reloadKey, sendLogin, viewMode])
 
+  // Limpiar contraseña revelada al cambiar de panel o credencial
+  useEffect(() => {
+    setRevealedPassword(null)
+    setCopied('')
+  }, [id, credentialId])
+
   async function copy(what: 'user' | 'password') {
     if (!selected) return
     try {
@@ -184,8 +190,8 @@ export default function PanelFrame() {
       await navigator.clipboard.writeText(text)
       setCopied(what)
       window.setTimeout(() => setCopied(''), 2000)
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'No se pudo copiar')
+    } catch {
+      setMessage('No se pudo copiar al portapapeles')
     }
   }
 
@@ -199,8 +205,12 @@ export default function PanelFrame() {
     try {
       const pw = await revealCredential(selected.id)
       setRevealedPassword(pw)
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'No se pudo descifrar la contraseña')
+      // Auto-ocultar tras 10 segundos por seguridad
+      window.setTimeout(() => {
+        setRevealedPassword((curr) => (curr === pw ? null : curr))
+      }, 10_000)
+    } catch {
+      setMessage('No se pudo descifrar la contraseña')
     } finally {
       setRevealing(false)
     }
@@ -470,9 +480,92 @@ export default function PanelFrame() {
           </div>
         </div>
       ) : (
-        /* VISTA DE MARCO EMBEBIDO (IFRAME LIMPIO SIN AVISOS MOLESTOS) */
-        <div className="flex flex-1 flex-col">
-          {/* Estado del auto-login (solo paneles propios) */}
+        /* VISTA DE MARCO EMBEBIDO (IFRAME CON ACCESO RÁPIDO A CREDENCIALES) */
+        <div className="flex flex-1 min-h-0 flex-col">
+          {/* Barra de Credenciales Rápidas para el Marco Embebido */}
+          {selected && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-slate-950 px-3 py-1 text-xs shrink-0 shadow-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1 text-emerald-400 font-medium">
+                  <KeyRound size={13} />
+                  <span className="text-[11px]">Acceso guardado:</span>
+                </div>
+
+                {credentials.length > 1 && (
+                  <Select
+                    value={selected.id}
+                    onChange={(e) => setCredentialId(e.target.value)}
+                    className="py-0.5 px-2 text-[11px] h-6 bg-slate-900 border-slate-700"
+                  >
+                    {credentials.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.label} ({c.username})
+                      </option>
+                    ))}
+                  </Select>
+                )}
+
+                {/* Usuario */}
+                <div className="flex items-center rounded border border-slate-800 bg-slate-900 px-2 py-0.5 gap-1.5">
+                  <User size={11} className="text-slate-400" />
+                  <span className="font-mono text-slate-200 text-[11px]">{selected.username}</span>
+                  <button
+                    type="button"
+                    onClick={() => copy('user')}
+                    className={clsx(
+                      'flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors',
+                      copied === 'user'
+                        ? 'bg-emerald-500/20 text-emerald-300'
+                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'
+                    )}
+                    title="Copiar usuario al portapapeles"
+                  >
+                    {copied === 'user' ? <Check size={11} className="text-emerald-400" /> : <ClipboardCopy size={11} />}
+                    <span>{copied === 'user' ? '¡Copiado!' : 'Copiar'}</span>
+                  </button>
+                </div>
+
+                {/* Contraseña */}
+                <div className="flex items-center rounded border border-slate-800 bg-slate-900 px-2 py-0.5 gap-1.5">
+                  <Lock size={11} className="text-slate-400" />
+                  <span className="font-mono text-slate-200 text-[11px]">
+                    {revealedPassword ?? '••••••••'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={toggleRevealPassword}
+                    disabled={revealing}
+                    className="text-slate-400 hover:text-slate-200 p-0.5 transition-colors"
+                    title={revealedPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+                  >
+                    {revealedPassword ? <EyeOff size={12} /> : <Eye size={12} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => copy('password')}
+                    className={clsx(
+                      'flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors',
+                      copied === 'password'
+                        ? 'bg-emerald-500/20 text-emerald-300'
+                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'
+                    )}
+                    title="Copiar contraseña al portapapeles"
+                  >
+                    {copied === 'password' ? <Check size={11} className="text-emerald-400" /> : <KeyRound size={11} />}
+                    <span>{copied === 'password' ? '¡Copiada!' : 'Copiar clave'}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="hidden md:flex items-center gap-2 text-[11px] text-slate-400">
+                <span className="text-slate-500 text-[10px]">
+                  Copia usuario o clave con 1 clic para pegarlos en el acceso del servidor
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Estado del auto-login (solo paneles propios con supabase_url) */}
           {isOwn && (status !== 'idle' || message) && (
             <div className="flex flex-wrap items-center gap-2 border-b border-slate-800/60 bg-slate-950/60 px-4 py-1 text-xs">
               {selected && status !== 'error' && status !== 'idle' && (

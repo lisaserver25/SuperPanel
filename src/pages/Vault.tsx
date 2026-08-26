@@ -70,6 +70,7 @@ export default function Vault() {
         notes: form.notes.trim() || null,
       })
       setFormOpen(false)
+      setForm(emptyForm)
       await qc.invalidateQueries({ queryKey: ['credentials'] })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo guardar')
@@ -238,6 +239,10 @@ export default function Vault() {
               value={form.password}
               onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
               autoComplete="new-password"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              data-lpignore="true"
             />
           </Field>
           <Field label="Notas (opcional)">
@@ -245,7 +250,7 @@ export default function Vault() {
           </Field>
           {error && <p className="text-sm text-red-400">{error}</p>}
           <div className="flex justify-end gap-2 pt-1">
-            <Button type="button" onClick={() => setFormOpen(false)}>
+            <Button type="button" onClick={() => { setFormOpen(false); setForm(emptyForm) }}>
               Cancelar
             </Button>
             <Button variant="primary" type="submit" disabled={saving || !form.panel_id}>

@@ -26,9 +26,11 @@ export default function Login() {
     const { error: err } = await supabase.auth.signInWithPassword({ email, password })
     setBusy(false)
     if (err) {
+      setPassword('')
       setError(err.message)
       return
     }
+    setPassword('')
     navigate('/', { replace: true })
   }
 
@@ -45,6 +47,9 @@ export default function Login() {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="tu@email.com"
             autoComplete="username"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
           />
         </Field>
         <Field label="Contraseña">
@@ -55,6 +60,10 @@ export default function Login() {
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"
             autoComplete="current-password"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            data-lpignore="true"
           />
         </Field>
         {error && <p className="text-sm text-red-400">{error}</p>}

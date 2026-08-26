@@ -261,8 +261,8 @@ export default function PanelFormModal({
           label: 'Acceso principal',
           username: form.auth_username.trim(),
           password: form.auth_password || undefined,
-        }).catch((err) => {
-          console.warn('Error al guardar credencial integrada:', err)
+        }).catch(() => {
+          /* error silencioso sin exponer credencial a consola */
         })
       }
 
@@ -408,6 +408,10 @@ export default function PanelFormModal({
                   onChange={(e) => setForm((f) => ({ ...f, auth_password: e.target.value }))}
                   placeholder={form.existing_cred_id ? '•••••••• (sin cambios)' : '••••••••'}
                   autoComplete="new-password"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  data-lpignore="true"
                   className="py-1 pr-7 text-xs"
                 />
                 <Lock size={12} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
