@@ -177,12 +177,6 @@ export default function PanelFrame() {
     }
   }, [isOwn, selected?.id, reloadKey, sendLogin, viewMode])
 
-  // Limpiar contraseña revelada al cambiar de panel o credencial
-  useEffect(() => {
-    setRevealedPassword(null)
-    setCopied('')
-  }, [id, credentialId])
-
   async function copy(what: 'user' | 'password') {
     if (!selected) return
     try {
@@ -192,8 +186,6 @@ export default function PanelFrame() {
       window.setTimeout(() => setCopied(''), 2000)
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'No se pudo copiar')
-    } catch {
-      setMessage('No se pudo copiar al portapapeles')
     }
   }
 
@@ -209,12 +201,6 @@ export default function PanelFrame() {
       setRevealedPassword(pw)
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'No se pudo descifrar la contraseña')
-      // Auto-ocultar tras 10 segundos por seguridad
-      window.setTimeout(() => {
-        setRevealedPassword((curr) => (curr === pw ? null : curr))
-      }, 10_000)
-    } catch {
-      setMessage('No se pudo descifrar la contraseña')
     } finally {
       setRevealing(false)
     }

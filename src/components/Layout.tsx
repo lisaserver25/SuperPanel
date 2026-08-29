@@ -19,7 +19,6 @@ import {
   X,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
-import { safeUserDisplayName } from '../lib/security'
 import { useTabs } from '../lib/tabs'
 import {
   fetchBrandingSettings,
@@ -466,7 +465,6 @@ export default function Layout() {
   const panels = panelsQuery.data ?? []
   const credentials = credsQuery.data ?? []
   const credPanelIds = useMemo(() => new Set(credentials.map((c) => c.panel_id)), [credentials])
-  const userDisplayName = safeUserDisplayName(profile, user)
 
   // Estilo de menú: vista previa → preferencia local → perfil → por defecto del hub
   const [localStyle, setLocalStyle] = useState<MenuStyle | null>(readStoredStyle)
@@ -566,7 +564,6 @@ export default function Layout() {
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-2 text-xs text-slate-400">
               <span className="hidden max-w-[160px] truncate xl:block">{user?.email}</span>
-              <span className="hidden max-w-[160px] truncate xl:block">{userDisplayName}</span>
               {appearance}
             </div>
           </div>
@@ -619,8 +616,6 @@ export default function Layout() {
             <div className="flex items-center justify-between gap-2 text-xs text-slate-400">
               <span className="truncate" title={user?.email}>
                 {user?.email}
-              <span className="truncate">
-                {userDisplayName}
               </span>
               <button className="btn-ghost shrink-0 px-2 py-1 text-xs" onClick={handleLogout} title="Cerrar sesión">
                 <LogOut size={13} />
@@ -669,7 +664,6 @@ export default function Layout() {
 
           <div className="ml-auto flex items-center gap-2 text-xs text-slate-400">
             <span className="hidden max-w-[180px] truncate lg:block">{user?.email}</span>
-            <span className="hidden max-w-[180px] truncate lg:block">{userDisplayName}</span>
             {appearance}
             <button className="btn-ghost text-xs px-2 py-1" onClick={handleLogout}>
               <LogOut size={13} /> <span className="hidden sm:inline">Salir</span>

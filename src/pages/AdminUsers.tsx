@@ -205,17 +205,12 @@ export default function AdminUsers() {
           <Field label="Contraseña inicial">
             <Input
               type="text"
-              type="password"
               required
               minLength={6}
               value={create.password}
               onChange={(e) => setCreate((c) => ({ ...c, password: e.target.value }))}
               className="font-mono"
               autoComplete="new-password"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              data-lpignore="true"
             />
           </Field>
           <Field label="Rol">
@@ -232,7 +227,6 @@ export default function AdminUsers() {
           </p>
           <div className="flex justify-end gap-2 pt-1">
             <Button type="button" onClick={() => setCreate((c) => ({ ...c, open: false }))}>
-            <Button type="button" onClick={() => setCreate({ open: false, fullName: '', email: '', password: '', role: 'user' })}>
               Cancelar
             </Button>
             <Button variant="primary" type="submit" disabled={busy}>
@@ -248,17 +242,12 @@ export default function AdminUsers() {
           <Field label="Nueva contraseña">
             <Input
               type="text"
-              type="password"
               required
               minLength={6}
               value={pwModal?.password ?? ''}
               onChange={(e) => setPwModal((p) => (p ? { ...p, password: e.target.value } : p))}
               className="font-mono"
               autoComplete="new-password"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              data-lpignore="true"
             />
           </Field>
           {error && <p className="text-sm text-red-400">{error}</p>}
