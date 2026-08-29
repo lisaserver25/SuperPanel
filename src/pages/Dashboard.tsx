@@ -861,6 +861,19 @@ export default function Dashboard() {
           {groupedByCategory.map(([category, catPanels]) => {
             const isExpanded =
               !!search.trim() || selectedSubcategory !== 'all' || expandedCats.has(category)
+
+            // Sub-agrupación por subservicio dentro de la categoría
+            const subGroups = new Map<string, Panel[]>()
+            if (isExpanded) {
+              for (const p of catPanels as Panel[]) {
+                const sub = p.subcategory && p.subcategory !== 'General' ? p.subcategory : 'General'
+                if (!subGroups.has(sub)) subGroups.set(sub, [])
+                subGroups.get(sub)!.push(p)
+              }
+            }
+            const groups = Array.from(subGroups.entries())
+            const hasMultiple = groups.length > 1 || (groups.length === 1 && groups[0][0] !== 'General')
+
             return (
             <section key={category} className="rounded-xl border border-slate-800/80 bg-slate-900/30">
               {/* Cabecera de Categoría (clic = colapsar/expandir) */}
@@ -929,77 +942,59 @@ export default function Dashboard() {
               </div>
 
               {/* Contenido (solo si está expandida) */}
-              {isExpanded &&
-                (catPanels.length === 0 ? (
-                <div className="mx-3 mb-3 rounded-xl border border-dashed border-slate-800 p-6 text-center bg-slate-950/30 space-y-3">
-                  <p className="text-sm text-slate-400">
-                    La categoría <strong>«{category}»</strong> no tiene paneles todavía.
-                  </p>
-                  <div className="flex items-center justify-center gap-2">
-                    <Button
-                      variant="primary"
-                      className="text-xs"
-                      onClick={() => openCreate(category)}
-                    >
-                      <Plus size={14} /> Añadir panel a {category}
-                    </Button>
-                    <Button
-                      className="text-xs text-red-400 hover:text-red-300 border border-slate-800"
-                      onClick={() => handleDeleteCategory(category)}
-                    >
-                      <Trash2 size={13} /> Eliminar categoría
-                    </Button>
+              {isExpanded && (
+                catPanels.length === 0 ? (
+                  <div className="mx-3 mb-3 rounded-xl border border-dashed border-slate-800 p-6 text-center bg-slate-950/30 space-y-3">
+                    <p className="text-sm text-slate-400">
+                      La categoría <strong>«{category}»</strong> no tiene paneles todavía.
+                    </p>
+                    <div className="flex items-center justify-center gap-2">
+                      <Button variant="primary" className="text-xs" onClick={() => openCreate(category)}>
+                        <Plus size={14} /> Añadir panel a {category}
+                      </Button>
+                      <Button
+                        className="text-xs text-red-400 hover:text-red-300 border border-slate-800"
+                        onClick={() => handleDeleteCategory(category)}
+                      >
+                        <Trash2 size={13} /> Eliminar categoría
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              ) : (
-                (() => {
-                  /* Sub-agrupación por subservicio dentro de la categoría */
-                  const subGroups = new Map<string, Panel[]>()
-                  for (const p of catPanels as Panel[]) {
-                    const sub = p.subcategory && p.subcategory !== 'General' ? p.subcategory : 'General'
-                    if (!subGroups.has(sub)) subGroups.set(sub, [])
-                    subGroups.get(sub)!.push(p)
-                  }
-                  const groups = Array.from(subGroups.entries())
-                  const hasMultiple = groups.length > 1 || (groups.length === 1 && groups[0][0] !== 'General')
-
-                  if (!hasMultiple) {
-                    return (
-                      <div className="px-3 pb-3">
+                ) : hasMultiple ? (
+                  <div className="px-3 pb-3 space-y-4">
+                    {groups.map(([sub, list]) => (
+                      <div key={sub} className="space-y-2">
+                        <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                          <Layers size={11} className="text-sky-400" />
+                          {sub}
+                          <span className="text-slate-600">({list.length})</span>
+                        </div>
                         {viewMode === 'list' ? (
-                          <div className="space-y-2">{catPanels.map((p: Panel) => renderListRow(p))}</div>
+                          <div className="space-y-2">{list.map((p) => renderListRow(p))}</div>
                         ) : (
                           <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                            {catPanels.map((p: Panel) => renderGridCard(p))}
+                            {list.map((p) => renderGridCard(p))}
                           </div>
                         )}
                       </div>
-                    )
-                  }
-
-                  return (
-                    <div className="px-3 pb-3 space-y-4">
-                      {groups.map(([sub, list]) => (
-                        <div key={sub} className="space-y-2">
-                          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                            <Layers size={11} className="text-sky-400" />
-                            {sub}
-                            <span className="text-slate-600">({list.length})</span>
-                          </div>
-                          {viewMode === 'list' ? (
-                            <div className="space-y-2">{list.map((p) => renderListRow(p))}</div>
-                          ) : (
-                            <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                              {list.map((p) => renderGridCard(p))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )
-                })())}
+                    ))}
+                  </div>
+                ) : (
+                  <div className="px-3 pb-3">
+                    {viewMode === 'list' ? (
+                      <div className="space-y-2">{catPanels.map((p: Panel) => renderListRow(p))}</div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                        {catPanels.map((p: Panel) => renderGridCard(p))}
+                      </div>
+                    )}
+                  </div>
+                )
+              )}
             </section>
-          ))}
+            )
+          }
+          )}
         </div>
       )}
 
