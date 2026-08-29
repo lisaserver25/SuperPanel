@@ -844,17 +844,6 @@ export default function Dashboard() {
             ? 'Todavía no has añadido ningún panel. Pulsa «Añadir categoría» o «Añadir panel» para comenzar.'
             : 'Ningún panel coincide con los filtros seleccionados.'}
         </EmptyState>
-      ) : selectedCategory === 'all' ? (
-        /* VISTA UNIFICADA SIN SEPARACIÓN POR CATEGORÍAS */
-        viewMode === 'list' ? (
-          <div className="space-y-2">
-            {visiblePanels.map((p) => renderListRow(p))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {visiblePanels.map((p) => renderGridCard(p))}
-          </div>
-        )
       ) : (
         /* VISTA POR CATEGORÍAS: cada una colapsada por defecto */
         <div className="space-y-4">
