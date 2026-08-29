@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
 import {
+  ChevronDown,
   ExternalLink,
   FileUp,
   Folder,
@@ -60,6 +61,9 @@ export default function Dashboard() {
   const { openPanelTab } = useTabs()
   const [search, setSearch] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string>('all')
+  // Categorías expandidas (por defecto todas colapsadas)
+  const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set())
   const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => {
     try {
       return (localStorage.getItem('sp_view_mode') as 'list' | 'grid') || 'list'
@@ -136,6 +140,16 @@ export default function Dashboard() {
     })
   }, [allCategories, panels, selectedCategory])
 
+  // Subservicios existentes en los paneles (para el filtro)
+  const allSubcategories = useMemo(() => {
+    const set = new Set<string>()
+    for (const p of panels) {
+      const sub = p.subcategory?.trim()
+      if (sub && sub !== 'General') set.add(sub)
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b))
+  }, [panels])
+
   // Filtrado de paneles
   const visiblePanels = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -143,15 +157,18 @@ export default function Dashboard() {
       const panelCat = p.category || 'General'
       if (selectedCategory !== 'all' && panelCat !== selectedCategory) return false
 
+      if (selectedSubcategory !== 'all' && (p.subcategory || 'General') !== selectedSubcategory) return false
+
       if (!q) return true
       return (
         p.name.toLowerCase().includes(q) ||
         p.url.toLowerCase().includes(q) ||
         panelCat.toLowerCase().includes(q) ||
+        (p.subcategory || '').toLowerCase().includes(q) ||
         (p.notes || '').toLowerCase().includes(q)
       )
     })
-  }, [panels, selectedCategory, search])
+  }, [panels, selectedCategory, selectedSubcategory, search])
 
   // Agrupación por categoría (ocultando categorías vacías en la vista general y al buscar)
   const groupedByCategory = useMemo(() => {
@@ -170,8 +187,8 @@ export default function Dashboard() {
       groups[cat].push(p)
     }
 
-    // Si estamos viendo "Todas" o realizando una búsqueda, ocultar categorías vacías
-    if (selectedCategory === 'all' || search.trim()) {
+    // Si estamos viendo "Todas" o realizando una búsqueda (o filtrando por subservicio), ocultar categorías vacías
+    if (selectedCategory === 'all' || search.trim() || selectedSubcategory !== 'all') {
       return Object.entries(groups)
         .filter(([, catPanels]) => catPanels.length > 0)
         .sort(([a], [b]) => a.localeCompare(b))
@@ -179,7 +196,16 @@ export default function Dashboard() {
 
     // Si se seleccionó una categoría específica, mantenerla visible para poder gestionarla
     return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b))
-  }, [visiblePanels, allCategories, selectedCategory, search])
+  }, [visiblePanels, allCategories, selectedCategory, selectedSubcategory, search])
+
+  function toggleCatExpanded(category: string) {
+    setExpandedCats((prev) => {
+      const next = new Set(prev)
+      if (next.has(category)) next.delete(category)
+      else next.add(category)
+      return next
+    })
+  }
   const loading = panelsQuery.isLoading || credsQuery.isLoading
 
   function openCreate(categoryName = 'General') {
@@ -740,7 +766,11 @@ export default function Dashboard() {
           return (
             <button
               key={cat}
-              onClick={() => setSelectedCategory(cat)}
+              onClick={() => {
+                setSelectedCategory(cat)
+                // Al elegir una categoría concreta, se expande automáticamente
+                setExpandedCats((prev) => new Set(prev).add(cat))
+              }}
               className={clsx(
                 'flex items-center gap-1 rounded-full px-3 py-1 text-xs transition-colors shrink-0',
                 selectedCategory === cat
@@ -766,6 +796,43 @@ export default function Dashboard() {
         </button>
       </div>
 
+      {/* Píldoras de filtro por Subservicio */}
+      {allSubcategories.length > 0 && (
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+          <span className="text-xs font-semibold text-slate-500 mr-1 shrink-0">Subservicio:</span>
+          <button
+            onClick={() => setSelectedSubcategory('all')}
+            className={clsx(
+              'rounded-full px-3 py-1 text-xs transition-colors shrink-0',
+              selectedSubcategory === 'all'
+                ? 'bg-violet-500 text-white font-medium shadow-sm'
+                : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            )}
+          >
+            Todos
+          </button>
+          {allSubcategories.map((sub) => {
+            const count = panels.filter((p) => (p.subcategory || 'General') === sub).length
+            return (
+              <button
+                key={sub}
+                onClick={() => setSelectedSubcategory(sub)}
+                className={clsx(
+                  'flex items-center gap-1 rounded-full px-3 py-1 text-xs transition-colors shrink-0',
+                  selectedSubcategory === sub
+                    ? 'bg-violet-500 text-white font-medium shadow-sm'
+                    : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                )}
+              >
+                <Layers size={11} />
+                <span>{sub}</span>
+                <span className={selectedSubcategory === sub ? 'text-violet-100' : 'text-slate-500'}>({count})</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       {/* Contenido principal de paneles */}
@@ -789,22 +856,38 @@ export default function Dashboard() {
           </div>
         )
       ) : (
-        /* VISTA POR CATEGORÍA ESPECÍFICA CON CABECERA DE CATEGORÍA */
-        <div className="space-y-8">
-          {groupedByCategory.map(([category, catPanels]) => (
-            <section key={category} className="space-y-3.5">
-              {/* Cabecera de Categoría con botones de Renombrar y Añadir panel */}
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
-                <div className="flex items-center gap-2">
-                  <span className="grid h-7 w-7 place-items-center rounded bg-sky-500/10 text-sky-400 font-semibold text-xs">
-                    <Folder size={15} />
-                  </span>
-                  <h2 className="text-base font-semibold tracking-wide text-slate-100">
-                    {category}
-                  </h2>
-                  <span className="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-400 font-mono">
-                    {catPanels.length} {catPanels.length === 1 ? 'panel' : 'paneles'}
-                  </span>
+        /* VISTA POR CATEGORÍAS: cada una colapsada por defecto */
+        <div className="space-y-4">
+          {groupedByCategory.map(([category, catPanels]) => {
+            const isExpanded =
+              !!search.trim() || selectedSubcategory !== 'all' || expandedCats.has(category)
+            return (
+            <section key={category} className="rounded-xl border border-slate-800/80 bg-slate-900/30">
+              {/* Cabecera de Categoría (clic = colapsar/expandir) */}
+              <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => toggleCatExpanded(category)}
+                    className="grid h-7 w-7 place-items-center rounded bg-sky-500/10 text-sky-400 transition-colors hover:bg-sky-500/20"
+                    title={isExpanded ? 'Colapsar categoría' : 'Expandir categoría'}
+                  >
+                    <ChevronDown size={15} className={clsx('transition-transform duration-200', isExpanded && 'rotate-180')} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleCatExpanded(category)}
+                    className="flex min-w-0 items-center gap-2 text-left"
+                    title={isExpanded ? 'Colapsar categoría' : `Mostrar los ${catPanels.length} paneles de «${category}»`}
+                  >
+                    <Folder size={15} className="shrink-0 text-sky-400" />
+                    <h2 className="text-base font-semibold tracking-wide text-slate-100 truncate">
+                      {category}
+                    </h2>
+                    <span className="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-400 font-mono shrink-0">
+                      {catPanels.length} {catPanels.length === 1 ? 'panel' : 'paneles'}
+                    </span>
+                  </button>
 
                   {/* Botón para Renombrar Categoría */}
                   <button
@@ -845,9 +928,10 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Si la categoría está vacía, mostrar tarjeta para añadir el primer panel */}
-              {catPanels.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-slate-800 p-6 text-center bg-slate-950/30 space-y-3">
+              {/* Contenido (solo si está expandida) */}
+              {isExpanded &&
+                (catPanels.length === 0 ? (
+                <div className="mx-3 mb-3 rounded-xl border border-dashed border-slate-800 p-6 text-center bg-slate-950/30 space-y-3">
                   <p className="text-sm text-slate-400">
                     La categoría <strong>«{category}»</strong> no tiene paneles todavía.
                   </p>
@@ -880,17 +964,21 @@ export default function Dashboard() {
                   const hasMultiple = groups.length > 1 || (groups.length === 1 && groups[0][0] !== 'General')
 
                   if (!hasMultiple) {
-                    return viewMode === 'list' ? (
-                      <div className="space-y-2">{catPanels.map((p: Panel) => renderListRow(p))}</div>
-                    ) : (
-                      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                        {catPanels.map((p: Panel) => renderGridCard(p))}
+                    return (
+                      <div className="px-3 pb-3">
+                        {viewMode === 'list' ? (
+                          <div className="space-y-2">{catPanels.map((p: Panel) => renderListRow(p))}</div>
+                        ) : (
+                          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                            {catPanels.map((p: Panel) => renderGridCard(p))}
+                          </div>
+                        )}
                       </div>
                     )
                   }
 
                   return (
-                    <div className="space-y-4">
+                    <div className="px-3 pb-3 space-y-4">
                       {groups.map(([sub, list]) => (
                         <div key={sub} className="space-y-2">
                           <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
@@ -909,8 +997,7 @@ export default function Dashboard() {
                       ))}
                     </div>
                   )
-                })()
-              )}
+                })())}
             </section>
           ))}
         </div>
