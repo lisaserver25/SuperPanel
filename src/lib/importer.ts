@@ -15,6 +15,8 @@ export interface ParsedPanelEntry {
   loginEmail: string
   loginPassword: string
   referenceUser?: string
+  /** Tag de servicio detectado entre corchetes del nombre, ej. "Plex" */
+  serviceTag?: string
 }
 
 function cleanField(s: string): string {
@@ -55,7 +57,13 @@ export function parsePanelListing(text: string): ParsedPanelEntry[] {
     const isNameLine = line.includes('🖥') || namePattern.test(line.replace(/🖥|💻/g, '').trim())
     if (isNameLine) {
       flush()
-      current = { name: extractName(line) }
+      const label = extractName(line)
+      // El tag entre corchetes del nombre es el subservicio (ej. [Plex])
+      const tagMatch = label.match(/\[([^\]]+)\]\s*$/)
+      current = {
+        name: (tagMatch ? label.replace(/\s*\[[^\]]+\]\s*$/, '') : label).trim() || label,
+        serviceTag: tagMatch ? tagMatch[1].trim() : undefined,
+      }
       continue
     }
 

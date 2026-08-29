@@ -16,9 +16,12 @@ import {
 } from '../lib/queries'
 import {
   getPanelEmbedPreference,
+  getUserCustomSubservices,
   savePanelEmbedPreference,
   saveUserCustomCategory,
+  saveUserCustomSubservice,
 } from '../lib/categories'
+import { PRESET_SUBSERVICES } from '../lib/categories'
 import { useAuth } from '../lib/auth'
 import type { Panel, PanelCredential, PanelShare } from '../lib/types'
 
@@ -27,6 +30,8 @@ interface FormState {
   name: string
   url: string
   category: string
+  subcategory: string
+  customSubcategory: string
   logo_url: string
   sort_order: string
   notes: string
@@ -41,6 +46,8 @@ const emptyForm: FormState = {
   name: '',
   url: 'https://',
   category: 'General',
+  subcategory: 'General',
+  customSubcategory: '',
   logo_url: '',
   sort_order: '0',
   notes: '',
@@ -51,11 +58,15 @@ const emptyForm: FormState = {
 }
 
 function fromPanel(p: Panel, userId?: string, existingCred?: PanelCredential | null): FormState {
+  const known = ['General', ...PRESET_SUBSERVICES, ...getUserCustomSubservices(userId)]
+  const sub = p.subcategory || 'General'
   return {
     id: p.id,
     name: p.name,
     url: p.url,
     category: p.category || 'General',
+    subcategory: known.some((s) => s.toLowerCase() === sub.toLowerCase()) ? sub : '__custom__',
+    customSubcategory: known.some((s) => s.toLowerCase() === sub.toLowerCase()) ? '' : sub,
     logo_url: p.logo_url ?? '',
     sort_order: String(p.sort_order),
     notes: p.notes ?? '',
@@ -170,6 +181,12 @@ export default function PanelFormModal({
     return Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b))
   }, [existingCategories])
 
+  // Subservicios disponibles: presets + personalizados del usuario
+  const subOptions = useMemo(() => {
+    const set = new Set<string>(['General', ...PRESET_SUBSERVICES, ...getUserCustomSubservices(user?.id)])
+    return Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b))
+  }, [user?.id])
+
   useEffect(() => {
     if (open) {
       if (initial) {
@@ -239,9 +256,12 @@ export default function PanelFormModal({
     setError('')
     try {
       const catToSave = form.category.trim() || 'General'
+      const subToSave =
+        (form.subcategory === '__custom__' ? form.customSubcategory.trim() : form.subcategory.trim()) || 'General'
 
-      // Guardar categoría en categorías personalizadas del usuario
+      // Guardar categoría y subservicio en las listas personalizadas del usuario
       saveUserCustomCategory(user?.id, catToSave)
+      saveUserCustomSubservice(user?.id, subToSave)
 
       let panelId = form.id
 
@@ -257,6 +277,7 @@ export default function PanelFormModal({
           url: form.url.trim(),
           kind: 'third',
           category: catToSave,
+          subcategory: subToSave,
           logo_url: form.logo_url.trim() || null,
           notes: form.notes.trim() || null,
           sort_order: Number.parseInt(form.sort_order || '0', 10) || 0,
@@ -354,23 +375,57 @@ export default function PanelFormModal({
           </Field>
         </div>
 
-        {/* Fila 3: Categoría personalizada compacta */}
+        {/* Fila 3: Categoría (servicio global) + Subservicio */}
         <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-2.5 space-y-1.5">
-          <Field label="Categoría personalizada:">
-            <Input
-              required
-              list="cat-datalist-modal"
-              value={form.category}
-              onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-              placeholder="Escribe el nombre de tu categoría (ej: Tokio, Datacenter...)"
-              className="py-1 text-xs"
-            />
-            <datalist id="cat-datalist-modal">
-              {categoryList.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          </Field>
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            <Field label="Categoría (servicio global):">
+              <Input
+                required
+                list="cat-datalist-modal"
+                value={form.category}
+                onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+                placeholder="Escribe tu servicio global (ej: Tokio, Datacenter...)"
+                className="py-1 text-xs"
+              />
+              <datalist id="cat-datalist-modal">
+                {categoryList.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+            </Field>
+
+            <Field label="Subservicio:">
+              {initial?.is_shared ? (
+                <Input
+                  disabled
+                  value={form.subcategory === '__custom__' ? form.customSubcategory : form.subcategory}
+                  className="py-1 text-xs opacity-60"
+                  title="El subservicio lo define el propietario del panel"
+                />
+              ) : form.subcategory === '__custom__' ? (
+                <Input
+                  required
+                  value={form.customSubcategory}
+                  onChange={(e) => setForm((f) => ({ ...f, customSubcategory: e.target.value }))}
+                  placeholder="Nombre del subservicio (ej: Plex, Emby…)"
+                  className="py-1 text-xs"
+                />
+              ) : (
+                <Select
+                  value={form.subcategory}
+                  onChange={(e) => setForm((f) => ({ ...f, subcategory: e.target.value }))}
+                  className="py-1 text-xs"
+                >
+                  {subOptions.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                  <option value="__custom__">Personalizado…</option>
+                </Select>
+              )}
+            </Field>
+          </div>
 
           {categoryList.length > 0 && (
             <div className="flex flex-wrap items-center gap-1 max-h-16 overflow-y-auto pt-0.5">

@@ -1,10 +1,12 @@
 import { supabase } from './supabase'
 import {
   getUserPanelCategoryMap,
+  officialLogoForSubservice,
   removeUserPanelCategory,
   renameUserCustomCategory,
   renameUserPanelCategory,
   saveUserCustomCategory,
+  saveUserCustomSubservice,
   saveUserPanelCategory,
 } from './categories'
 import type {
@@ -421,7 +423,7 @@ export async function panelLogin(credentialId: string): Promise<PanelLoginTokens
 // --- Guardar y Editar Paneles (con soporte RPC y fallback directo) ---
 
 export async function savePanel(
-  panel: Partial<Panel> & { name: string; url: string; kind: 'own' | 'third'; category?: string }
+  panel: Partial<Panel> & { name: string; url: string; kind: 'own' | 'third'; category?: string; subcategory?: string }
 ): Promise<string> {
   const {
     data: { user },
@@ -429,12 +431,16 @@ export async function savePanel(
   if (!user) throw new Error('Se requiere sesión')
 
   const targetCategory = panel.category?.trim() || 'General'
+  const targetSubcategory = panel.subcategory?.trim() || 'General'
 
-  // Guardar en la lista de categorías del usuario
+  // Guardar en la lista de categorías y subservicios del usuario
   saveUserCustomCategory(user.id, targetCategory)
+  saveUserCustomSubservice(user.id, targetSubcategory)
 
-  // Logo final: el elegido por el usuario o el detectado automáticamente del dominio
-  const finalLogoUrl = panel.logo_url?.trim() || autoLogoForUrl(panel.url) || null
+  // Logo final: el elegido por el usuario, el oficial del subservicio,
+  // o el detectado automáticamente del dominio
+  const finalLogoUrl =
+    panel.logo_url?.trim() || officialLogoForSubservice(targetSubcategory) || autoLogoForUrl(panel.url) || null
   if (!panel.logo_url?.trim() && finalLogoUrl) {
     await cachePanelLogo(panel.url, finalLogoUrl)
   }
@@ -455,6 +461,7 @@ export async function savePanel(
       supabase_url: panel.kind === 'own' ? panel.supabase_url || null : null,
       supabase_anon_key: panel.kind === 'own' ? panel.supabase_anon_key || null : null,
       category: targetCategory,
+      subcategory: targetSubcategory,
       updated_at: new Date().toISOString(),
     }
 
@@ -466,6 +473,7 @@ export async function savePanel(
 
     if (updateErr) {
       delete updatePayload.category
+      delete updatePayload.subcategory
       const { error: retryErr } = await supabase
         .from('super_panels')
         .update(updatePayload)
@@ -485,6 +493,7 @@ export async function savePanel(
             p_supabase_url: panel.kind === 'own' ? panel.supabase_url || null : null,
             p_supabase_anon_key: panel.kind === 'own' ? panel.supabase_anon_key || null : null,
             p_category: targetCategory,
+            p_subcategory: targetSubcategory,
           })
           if (rpcErr || !rpcData) throw retryErr
           savedId = rpcData as string
@@ -506,6 +515,7 @@ export async function savePanel(
       supabase_url: panel.kind === 'own' ? panel.supabase_url || null : null,
       supabase_anon_key: panel.kind === 'own' ? panel.supabase_anon_key || null : null,
       category: targetCategory,
+      subcategory: targetSubcategory,
     }
 
     const { data: inserted, error: insertErr } = await supabase
@@ -516,6 +526,7 @@ export async function savePanel(
 
     if (insertErr) {
       delete insertPayload.category
+      delete insertPayload.subcategory
       const { data: retryData, error: retryErr } = await supabase
         .from('super_panels')
         .insert(insertPayload)
@@ -535,6 +546,7 @@ export async function savePanel(
             p_supabase_url: panel.kind === 'own' ? panel.supabase_url || null : null,
             p_supabase_anon_key: panel.kind === 'own' ? panel.supabase_anon_key || null : null,
             p_category: targetCategory,
+            p_subcategory: targetSubcategory,
           })
           if (rpcErr || !rpcData) throw retryErr
           savedId = rpcData as string

@@ -37,6 +37,7 @@ export interface Panel {
   notes: string | null
   sort_order: number
   category: string
+  subcategory?: string | null
   supabase_url: string | null
   supabase_anon_key: string | null
   created_at: string

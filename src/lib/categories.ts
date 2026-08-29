@@ -171,6 +171,68 @@ export function removeUserPanelCategory(userId: string | undefined, panelId: str
   }
 }
 
+// --- Subservicios personalizados por usuario (Plex, Emby, Datacenter…) ---
+
+export const PRESET_SUBSERVICES = ['Plex', 'Emby', 'Jellyfin', 'Datacenter', 'IPTV', 'Music'] as const
+
+// Logos oficiales por subservicio (Simple Icons CDN, SVG con color de marca)
+export const OFFICIAL_SUBSERVICE_LOGOS: Record<string, string> = {
+  plex: 'https://cdn.simpleicons.org/plex/e5a00d',
+  emby: 'https://cdn.simpleicons.org/emby/52b54b',
+  jellyfin: 'https://cdn.simpleicons.org/jellyfin/00a4dc',
+}
+
+export function officialLogoForSubservice(subservice?: string | null): string | null {
+  if (!subservice) return null
+  return OFFICIAL_SUBSERVICE_LOGOS[subservice.trim().toLowerCase()] ?? null
+}
+
+const SUBS_FALLBACK_KEY = 'sp_custom_subs_global'
+
+export function getUserCustomSubservices(userId?: string): string[] {
+  const keys = [
+    userId ? `sp_custom_subs_${userId}` : null,
+    SUBS_FALLBACK_KEY,
+  ].filter((k): k is string => !!k)
+
+  const set = new Set<string>()
+  for (const key of keys) {
+    try {
+      const raw = localStorage.getItem(key)
+      if (raw) {
+        const parsed = JSON.parse(raw) as string[]
+        if (Array.isArray(parsed)) {
+          for (const c of parsed) {
+            if (typeof c === 'string' && c.trim()) set.add(c.trim())
+          }
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return Array.from(set).sort((a, b) => a.localeCompare(b))
+}
+
+export function saveUserCustomSubservice(userId: string | undefined, subservice: string): string[] {
+  const trimmed = subservice.trim()
+  if (!trimmed) return getUserCustomSubservices(userId)
+  const current = getUserCustomSubservices(userId)
+  const exists = current.some((c) => c.toLowerCase() === trimmed.toLowerCase())
+  const updated = exists ? current : [...current, trimmed]
+
+  try {
+    if (userId) {
+      localStorage.setItem(`sp_custom_subs_${userId}`, JSON.stringify(updated))
+    }
+    localStorage.setItem(SUBS_FALLBACK_KEY, JSON.stringify(updated))
+  } catch {
+    /* ignore */
+  }
+  return updated
+}
+
 // --- Preferencia de visualización por panel (Marco embebido vs Acceso directo) ---
 
 const PANEL_VIEW_PREF_KEY = 'sp_panel_view_prefs'

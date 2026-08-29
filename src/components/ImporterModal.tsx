@@ -3,6 +3,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, CheckCircle2, FileUp, Search, Share2, Upload, Users } from 'lucide-react'
 import { parsePanelListing, type ParsedPanelEntry } from '../lib/importer'
 import { fetchPanels, fetchUserDirectory, savePanel, sharePanel, upsertCredential } from '../lib/queries'
+import {
+  getUserCustomSubservices,
+} from '../lib/categories'
+import { PRESET_SUBSERVICES } from '../lib/categories'
 import { useAuth } from '../lib/auth'
 import { Badge, Button, Field, Input, Modal, Select } from './ui'
 
@@ -33,6 +37,8 @@ export default function ImporterModal({
   const [text, setText] = useState('')
   const [category, setCategory] = useState<string>(defaultCategory || 'Plex')
   const [customCategory, setCustomCategory] = useState('')
+  const [subMode, setSubMode] = useState<string>('__auto__')
+  const [customSub, setCustomSub] = useState('')
   const [selectedEmails, setSelectedEmails] = useState<string[]>([])
   const [manualEmail, setManualEmail] = useState('')
   const [entries, setEntries] = useState<ParsedPanelEntry[] | null>(null)
@@ -42,6 +48,18 @@ export default function ImporterModal({
 
   // Categoría final aplicada al lote
   const finalCategory = (category === CUSTOM_OPTION ? customCategory.trim() : category.trim()) || 'General'
+
+  // Subservicio por entrada: '__auto__' usa el [tag] del listado
+  function subFor(e: ParsedPanelEntry): string {
+    if (subMode === '__auto__') return e.serviceTag?.trim() || 'General'
+    if (subMode === '__custom__') return customSub.trim() || 'General'
+    return subMode
+  }
+
+  const subOptions = useMemo(() => {
+    const set = new Set<string>([...PRESET_SUBSERVICES, ...getUserCustomSubservices(user?.id)])
+    return Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b))
+  }, [user?.id, open])
 
   const panelsQuery = useQuery({
     queryKey: ['panels'],
@@ -98,6 +116,8 @@ export default function ImporterModal({
     if (open) {
       setCategory(defaultCategory || 'Plex')
       setCustomCategory('')
+      setSubMode('__auto__')
+      setCustomSub('')
     }
   }, [open, defaultCategory])
 
@@ -120,6 +140,8 @@ export default function ImporterModal({
     setError('')
     setSelectedEmails([])
     setManualEmail('')
+    setSubMode('__auto__')
+    setCustomSub('')
   }
 
   async function runImport() {
@@ -139,11 +161,13 @@ export default function ImporterModal({
       }
 
       try {
+        const sub = subFor(e)
         const panelId = await savePanel({
           name: e.name,
           url: e.url,
           kind: 'third',
           category: cat,
+          subcategory: sub,
           logo_url: null, // se detecta automáticamente del dominio
           notes: e.referenceUser ? `Usuario del panel: ${e.referenceUser} (no se usa para el acceso)` : 'Importado masivamente',
           sort_order: 0,
@@ -211,7 +235,7 @@ export default function ImporterModal({
         </Field>
 
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-          <Field label="Categoría para todos los paneles importados">
+          <Field label="Categoría (servicio global)">
             <Select value={category} onChange={(e) => setCategory(e.target.value)}>
               {categoryList.map((c) => (
                 <option key={c} value={c}>
@@ -225,12 +249,36 @@ export default function ImporterModal({
                 required
                 value={customCategory}
                 onChange={(e) => setCustomCategory(e.target.value)}
-                placeholder="Nombre de la categoría personalizada"
+                placeholder="Nombre del servicio global"
                 className="mt-1.5 py-1 text-[11px]"
               />
             )}
             <span className="block pt-0.5 text-[10px] text-slate-500">
               Las categorías personalizadas se guardan para próximas importaciones.
+            </span>
+          </Field>
+          <Field label="Subservicio (tipo dentro de la categoría)">
+            <Select value={subMode} onChange={(e) => setSubMode(e.target.value)}>
+              <option value="__auto__">Auto (según el [tag] del listado)</option>
+              {subOptions.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+              <option value="__custom__">Personalizado…</option>
+            </Select>
+            {subMode === '__custom__' && (
+              <Input
+                required
+                value={customSub}
+                onChange={(e) => setCustomSub(e.target.value)}
+                placeholder="Nombre del subservicio"
+                className="mt-1.5 py-1 text-[11px]"
+              />
+            )}
+            <span className="block pt-0.5 text-[10px] text-slate-500">
+              Ej: Plex, Emby, Jellyfin, Datacenter, IPTV, Music… En modo Auto se deduce del [tag] de cada nombre y se
+              guardan los personalizados.
             </span>
           </Field>
         </div>
@@ -365,6 +413,7 @@ export default function ImporterModal({
                   <tr className="text-left text-slate-400">
                     <th className="px-2 py-1.5">Nombre</th>
                     <th className="px-2 py-1.5">URL</th>
+                    <th className="px-2 py-1.5">Subservicio</th>
                     <th className="px-2 py-1.5">Acceso (email)</th>
                     <th className="hidden px-2 py-1.5 sm:table-cell">Ref. usuario</th>
                   </tr>
@@ -379,6 +428,9 @@ export default function ImporterModal({
                           {duplicate && <span className="ml-1 text-[10px] text-amber-400">(duplicado)</span>}
                         </td>
                         <td className="px-2 py-1 font-mono text-slate-400">{e.url}</td>
+                        <td className="px-2 py-1">
+                          <Badge tone={subFor(e) === 'General' ? 'slate' : 'sky'}>{subFor(e)}</Badge>
+                        </td>
                         <td className="px-2 py-1 text-slate-300">
                           {e.loginEmail ? (
                             <span className="inline-flex items-center gap-1">

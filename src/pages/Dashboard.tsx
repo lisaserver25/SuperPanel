@@ -8,6 +8,7 @@ import {
   FolderEdit,
   FolderPlus,
   KeyRound,
+  Layers,
   LayoutGrid,
   List,
   Pencil,
@@ -366,6 +367,12 @@ export default function Dashboard() {
                 <Folder size={11} /> {p.category || 'General'}
               </Badge>
 
+              {p.subcategory && p.subcategory !== 'General' && (
+                <Badge tone="sky">
+                  <Layers size={11} /> {p.subcategory}
+                </Badge>
+              )}
+
               {p.is_shared && (
                 <Badge tone="violet">
                   <Users size={11} /> {p.shared_by_name ? `De ${p.shared_by_name.split(' ')[0]}` : 'Compartido'}
@@ -510,6 +517,12 @@ export default function Dashboard() {
             <Badge tone="slate">
               <Folder size={11} /> {p.category || 'General'}
             </Badge>
+
+            {p.subcategory && p.subcategory !== 'General' && (
+              <Badge tone="sky">
+                <Layers size={11} /> {p.subcategory}
+              </Badge>
+            )}
 
             {p.is_shared && (
               <Badge tone="violet">
@@ -854,16 +867,49 @@ export default function Dashboard() {
                     </Button>
                   </div>
                 </div>
-              ) : viewMode === 'list' ? (
-                /* Vista Lista de Servidores / Paneles */
-                <div className="space-y-2">
-                  {catPanels.map((p: Panel) => renderListRow(p))}
-                </div>
               ) : (
-                /* Grid de Tarjetas de Panel */
-                <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                  {catPanels.map((p: Panel) => renderGridCard(p))}
-                </div>
+                (() => {
+                  /* Sub-agrupación por subservicio dentro de la categoría */
+                  const subGroups = new Map<string, Panel[]>()
+                  for (const p of catPanels as Panel[]) {
+                    const sub = p.subcategory && p.subcategory !== 'General' ? p.subcategory : 'General'
+                    if (!subGroups.has(sub)) subGroups.set(sub, [])
+                    subGroups.get(sub)!.push(p)
+                  }
+                  const groups = Array.from(subGroups.entries())
+                  const hasMultiple = groups.length > 1 || (groups.length === 1 && groups[0][0] !== 'General')
+
+                  if (!hasMultiple) {
+                    return viewMode === 'list' ? (
+                      <div className="space-y-2">{catPanels.map((p: Panel) => renderListRow(p))}</div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                        {catPanels.map((p: Panel) => renderGridCard(p))}
+                      </div>
+                    )
+                  }
+
+                  return (
+                    <div className="space-y-4">
+                      {groups.map(([sub, list]) => (
+                        <div key={sub} className="space-y-2">
+                          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                            <Layers size={11} className="text-sky-400" />
+                            {sub}
+                            <span className="text-slate-600">({list.length})</span>
+                          </div>
+                          {viewMode === 'list' ? (
+                            <div className="space-y-2">{list.map((p) => renderListRow(p))}</div>
+                          ) : (
+                            <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                              {list.map((p) => renderGridCard(p))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()
               )}
             </section>
           ))}
