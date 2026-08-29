@@ -21,9 +21,19 @@ import {
   fetchCredentials,
   fetchPanels,
   revealCredential,
+  savePanel,
+  updatePanelShareCategory,
   upsertCredential,
 } from '../lib/queries'
-import { officialLogoForSubservice } from '../lib/categories'
+import {
+  getUserCustomCategories,
+  getUserCustomSubservices,
+  officialLogoForSubservice,
+  PRESET_SUBSERVICES,
+  saveUserCustomCategory,
+  saveUserCustomSubservice,
+} from '../lib/categories'
+import { useAuth } from '../lib/auth'
 import { useTabs } from '../lib/tabs'
 import { Badge, Button, EmptyState, Field, Input, Modal, Select } from '../components/ui'
 import type { Panel, PanelCredential } from '../lib/types'
@@ -35,13 +45,26 @@ interface FormState {
   username: string
   password: string
   notes: string
+  category: string
+  subcategory: string
+  customSubcategory: string
 }
 
-const emptyForm: FormState = { panel_id: '', label: '', username: '', password: '', notes: '' }
+const emptyForm: FormState = {
+  panel_id: '',
+  label: '',
+  username: '',
+  password: '',
+  notes: '',
+  category: 'General',
+  subcategory: 'General',
+  customSubcategory: '',
+}
 
 export default function Vault() {
   const qc = useQueryClient()
   const { openPanelTab } = useTabs()
+  const { user } = useAuth()
   const panelsQuery = useQuery({ queryKey: ['panels'], queryFn: fetchPanels })
   const credsQuery = useQuery({ queryKey: ['credentials'], queryFn: fetchCredentials })
 
@@ -151,13 +174,36 @@ export default function Vault() {
     setExpandedSubs(new Set())
   }
 
+  // Subservicios disponibles (presets + personalizados del usuario)
+  const subOptions = useMemo(() => {
+    const set = new Set<string>(['General', ...PRESET_SUBSERVICES, ...getUserCustomSubservices(user?.id)])
+    return Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b))
+  }, [user?.id])
+
+  // Categorías disponibles para el datalist
+  const categoryOptions = useMemo(() => {
+    const set = new Set<string>(categories)
+    for (const c of getUserCustomCategories(user?.id)) {
+      if (c.trim()) set.add(c.trim())
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b))
+  }, [categories, user?.id])
+
   function openCreate(panelId = '') {
-    setForm({ ...emptyForm, panel_id: panelId || panels[0]?.id || '' })
+    setForm({
+      ...emptyForm,
+      panel_id: panelId || panels[0]?.id || '',
+      category: filterCategory !== 'all' ? filterCategory : 'General',
+      subcategory: filterSub !== 'all' ? filterSub : 'General',
+    })
     setError('')
     setFormOpen(true)
   }
 
   function openEdit(c: PanelCredential) {
+    const panel = panelById.get(c.panel_id) ?? null
+    const sub = panel?.subcategory || 'General'
+    const known = subOptions.some((s) => s.toLowerCase() === sub.toLowerCase())
     setForm({
       id: c.id,
       panel_id: c.panel_id,
@@ -165,6 +211,9 @@ export default function Vault() {
       username: c.username,
       password: '',
       notes: c.notes ?? '',
+      category: panel?.category || 'General',
+      subcategory: known ? sub : '__custom__',
+      customSubcategory: known ? '' : sub,
     })
     setError('')
     setFormOpen(true)
@@ -183,6 +232,42 @@ export default function Vault() {
         password: form.password || undefined,
         notes: form.notes.trim() || null,
       })
+
+      // Actualizar la ficha del panel (categoría y subservicio) si procede
+      const panel = panelById.get(form.panel_id) ?? null
+      if (panel) {
+        const catToSave = form.category.trim() || 'General'
+        const subToSave =
+          (form.subcategory === '__custom__' ? form.customSubcategory.trim() : form.subcategory.trim()) || 'General'
+        saveUserCustomCategory(user?.id, catToSave)
+        saveUserCustomSubservice(user?.id, subToSave)
+
+        if (!panel.is_shared) {
+          const catChanged = catToSave !== (panel.category || 'General')
+          const subChanged = subToSave !== (panel.subcategory || 'General')
+          if (catChanged || subChanged) {
+            await savePanel({
+              id: panel.id,
+              name: panel.name,
+              url: panel.url,
+              kind: panel.kind,
+              category: catToSave,
+              subcategory: subToSave,
+              logo_url: panel.logo_url,
+              notes: panel.notes,
+              sort_order: panel.sort_order,
+              supabase_url: panel.supabase_url,
+              supabase_anon_key: panel.supabase_anon_key,
+            })
+            await qc.invalidateQueries({ queryKey: ['panels'] })
+          }
+        } else if (panel.share_id && catToSave !== (panel.category || 'General')) {
+          // En paneles compartidos, la categoría es personal (del acceso compartido)
+          await updatePanelShareCategory(panel.share_id, catToSave)
+          await qc.invalidateQueries({ queryKey: ['panels'] })
+        }
+      }
+
       setFormOpen(false)
       await qc.invalidateQueries({ queryKey: ['credentials'] })
     } catch (err) {
@@ -483,6 +568,71 @@ export default function Vault() {
               ))}
             </Select>
           </Field>
+
+          {/* Ficha del panel: servicio global y subservicio */}
+          {(() => {
+            const formPanel = form.panel_id ? panelById.get(form.panel_id) ?? null : null
+            return (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field label="Categoría (servicio global)">
+                  <Input
+                    required
+                    list="accesos-cat-datalist"
+                    value={form.category}
+                    onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+                    placeholder="Ej: cuentagotas"
+                    className="py-1 text-xs"
+                  />
+                  <datalist id="accesos-cat-datalist">
+                    {categoryOptions.map((c) => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
+                  {formPanel?.is_shared && (
+                    <span className="block pt-0.5 text-[10px] text-slate-500">
+                      En paneles compartidos esta categoría es solo para ti.
+                    </span>
+                  )}
+                </Field>
+                <Field label="Subservicio">
+                  {formPanel?.is_shared ? (
+                    <>
+                      <Input
+                        disabled
+                        value={form.subcategory === '__custom__' ? form.customSubcategory : form.subcategory}
+                        className="py-1 text-xs opacity-60"
+                        title="El subservicio lo define quien comparte el panel"
+                      />
+                      <span className="block pt-0.5 text-[10px] text-slate-500">
+                        Lo define quien comparte el panel.
+                      </span>
+                    </>
+                  ) : form.subcategory === '__custom__' ? (
+                    <Input
+                      required
+                      value={form.customSubcategory}
+                      onChange={(e) => setForm((f) => ({ ...f, customSubcategory: e.target.value }))}
+                      placeholder="Nombre del subservicio (ej: Plex)"
+                      className="py-1 text-xs"
+                    />
+                  ) : (
+                    <Select
+                      value={form.subcategory}
+                      onChange={(e) => setForm((f) => ({ ...f, subcategory: e.target.value }))}
+                      className="py-1 text-xs"
+                    >
+                      {subOptions.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                      <option value="__custom__">Personalizado…</option>
+                    </Select>
+                  )}
+                </Field>
+              </div>
+            )
+          })()}
           <Field label="Etiqueta">
             <Input
               required
