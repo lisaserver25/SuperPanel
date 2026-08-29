@@ -93,7 +93,7 @@ export function TabsProvider({ children }: { children: ReactNode }) {
     } else if (pathname === '/vault') {
       const tabId = 'vault'
       if (!tabs.some((t) => t.id === tabId)) {
-        setTabs((prev) => [...prev, { id: tabId, title: 'Contraseñas', path: '/vault', closable: true }])
+        setTabs((prev) => [...prev, { id: tabId, title: 'Accesos', path: '/vault', closable: true }])
       }
       setActiveTabId(tabId)
     } else if (pathname === '/admin/users') {

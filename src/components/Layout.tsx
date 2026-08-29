@@ -522,8 +522,8 @@ export default function Layout() {
   }
 
   const navItems: { to: string; label: string; icon: typeof LayoutGrid; end?: boolean }[] = [
-    { to: '/', label: 'Categorías', icon: LayoutGrid, end: true },
-    { to: '/vault', label: 'Contraseñas', icon: KeyRound },
+    { to: '/', label: 'Mis paneles', icon: LayoutGrid, end: true },
+    { to: '/vault', label: 'Accesos', icon: KeyRound },
   ]
   if (isSuperadmin) {
     navItems.push({ to: '/admin/users', label: 'Usuarios', icon: Users })
