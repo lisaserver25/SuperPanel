@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
 import {
   ExternalLink,
+  FileUp,
   Folder,
   FolderEdit,
   FolderPlus,
@@ -36,6 +37,7 @@ import { useAuth } from '../lib/auth'
 import { Badge, Button, EmptyState, Field, Input, Modal } from '../components/ui'
 import { useTabs } from '../lib/tabs'
 import PanelFormModal from '../components/PanelFormModal'
+import ImporterModal from '../components/ImporterModal'
 import type { Panel, PanelShare } from '../lib/types'
 
 function hostname(url: string): string {
@@ -67,6 +69,8 @@ export default function Dashboard() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Panel | null>(null)
   const [targetCatForNewPanel, setTargetCatForNewPanel] = useState<string>('General')
+  const [importerOpen, setImporterOpen] = useState(false)
+  const [importerCategory, setImporterCategory] = useState('Plex')
   const [error, setError] = useState('')
 
   function handleSetViewMode(mode: 'list' | 'grid') {
@@ -603,6 +607,16 @@ export default function Dashboard() {
           >
             <FolderPlus size={15} className="text-sky-400" /> Añadir categoría
           </Button>
+          <Button
+            className="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200"
+            onClick={() => {
+              setImporterCategory(selectedCategory !== 'all' ? selectedCategory : 'Plex')
+              setImporterOpen(true)
+            }}
+            title="Importar muchos paneles de golpe desde un listado"
+          >
+            <FileUp size={15} className="text-emerald-400" /> Importar masivo
+          </Button>
           <Button variant="primary" onClick={() => openCreate(selectedCategory !== 'all' ? selectedCategory : 'General')}>
             <Plus size={16} /> Añadir panel
           </Button>
@@ -862,6 +876,14 @@ export default function Dashboard() {
         onClose={() => setModalOpen(false)}
         initial={editing}
         defaultCategory={targetCatForNewPanel}
+        existingCategories={allCategories}
+      />
+
+      {/* Modal de importación masiva de paneles */}
+      <ImporterModal
+        open={importerOpen}
+        onClose={() => setImporterOpen(false)}
+        defaultCategory={importerCategory}
         existingCategories={allCategories}
       />
 
