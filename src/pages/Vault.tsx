@@ -9,7 +9,6 @@ import {
   EyeOff,
   Folder,
   KeyRound,
-  Layers,
   Pencil,
   Plus,
   Search,
@@ -17,7 +16,14 @@ import {
   Users,
 } from 'lucide-react'
 import clsx from 'clsx'
-import { deleteCredential, fetchCredentials, fetchPanels, revealCredential, upsertCredential } from '../lib/queries'
+import {
+  deleteCredential,
+  fetchCredentials,
+  fetchPanels,
+  revealCredential,
+  upsertCredential,
+} from '../lib/queries'
+import { officialLogoForSubservice } from '../lib/categories'
 import { useTabs } from '../lib/tabs'
 import { Badge, Button, EmptyState, Field, Input, Modal, Select } from '../components/ui'
 import type { Panel, PanelCredential } from '../lib/types'
@@ -54,8 +60,8 @@ export default function Vault() {
   const [filterCategory, setFilterCategory] = useState('all')
   const [filterSub, setFilterSub] = useState('all')
   const [filterType, setFilterType] = useState<'all' | 'own' | 'shared'>('all')
-  // Grupos de servicio expandidos (por defecto todos colapsados)
-  const [expandedPanels, setExpandedPanels] = useState<Set<string>>(new Set())
+  // Grupos de subservicio expandidos (por defecto todos colapsados)
+  const [expandedSubs, setExpandedSubs] = useState<Set<string>>(new Set())
 
   const panelById = useMemo(() => {
     const map = new Map<string, Panel>()
@@ -86,7 +92,7 @@ export default function Vault() {
     const set = new Set<string>()
     for (const r of rows) {
       const sub = r.panel!.subcategory?.trim()
-      if (sub && sub !== 'General') set.add(sub)
+      if (sub) set.add(sub)
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b))
   }, [rows])
@@ -112,6 +118,38 @@ export default function Vault() {
       )
     })
   }, [rows, search, filterCategory, filterSub, filterType])
+
+  // Grupos por SUBSERVICIO (Plex, Emby…) con subgrupos por categoría
+  const serviceGroups = useMemo(() => {
+    const subs = new Map<string, Map<string, { cred: PanelCredential; panel: Panel }[]>>()
+    for (const r of filteredRows) {
+      const p = r.panel!
+      const sub = p.subcategory?.trim() || 'General'
+      if (!subs.has(sub)) subs.set(sub, new Map())
+      const cats = subs.get(sub)!
+      const cat = p.category || 'General'
+      if (!cats.has(cat)) cats.set(cat, [])
+      cats.get(cat)!.push({ cred: r.cred, panel: p })
+    }
+    return Array.from(subs.entries()).sort(([a], [b]) => a.localeCompare(b))
+  }, [filteredRows])
+
+  function toggleSub(sub: string) {
+    setExpandedSubs((prev) => {
+      const next = new Set(prev)
+      if (next.has(sub)) next.delete(sub)
+      else next.add(sub)
+      return next
+    })
+  }
+
+  function expandAll() {
+    setExpandedSubs(new Set(serviceGroups.map(([sub]) => sub)))
+  }
+
+  function collapseAll() {
+    setExpandedSubs(new Set())
+  }
 
   function openCreate(panelId = '') {
     setForm({ ...emptyForm, panel_id: panelId || panels[0]?.id || '' })
@@ -203,35 +241,66 @@ export default function Vault() {
     }
   }
 
+  function renderRow(cred: PanelCredential, panel: Panel, indent: boolean) {
+    return (
+      <li
+        key={cred.id}
+        className={clsx(
+          'flex flex-wrap items-center gap-2 px-3 py-2 hover:bg-slate-800/40 transition-colors',
+          indent ? 'pl-10' : 'pl-4'
+        )}
+      >
+        {panel.logo_url && (
+          <img src={panel.logo_url} alt="" className="h-5 w-5 shrink-0 rounded bg-slate-800 object-contain p-0.5" />
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="truncate text-xs font-semibold text-slate-100">{panel.name}</span>
+            {panel.is_shared && (
+              <Badge tone="violet">
+                <Users size={10} /> Compartido
+              </Badge>
+            )}
+            <span className="truncate text-[11px] text-slate-500">· {cred.label}</span>
+          </div>
+          <div className="flex items-center gap-2 mt-0.5 text-[11px]">
+            <span className="truncate font-mono text-slate-400">{cred.username}</span>
+            <span className="text-slate-600">·</span>
+            <span className="truncate font-mono text-amber-300/90">
+              {revealed[cred.id] !== undefined ? revealed[cred.id] : '••••••••••••'}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1">
+          <Button className="px-2 py-1 text-xs" onClick={() => copyUsername(cred)} title="Copiar usuario">
+            {copiedId === cred.id + ':user' ? (
+              <ClipboardCheck size={13} className="text-emerald-400" />
+            ) : (
+              <ClipboardCopy size={13} />
+            )}
+          </Button>
+          <Button className="px-2 py-1 text-xs" onClick={() => copyPassword(cred)} title="Copiar contraseña">
+            {copiedId === cred.id ? <ClipboardCheck size={13} className="text-emerald-400" /> : <KeyRound size={13} />}
+          </Button>
+          <Button className="px-2 py-1 text-xs" onClick={() => toggleReveal(cred)} title="Revelar (10 s)">
+            {revealed[cred.id] !== undefined ? <EyeOff size={13} /> : <Eye size={13} />}
+          </Button>
+          <Button className="px-2 py-1 text-xs text-sky-400" title={`Abrir ${panel.name}`} onClick={() => openPanelTab(panel)}>
+            <ExternalLink size={13} />
+          </Button>
+          <Button className="px-2 py-1 text-xs" onClick={() => openEdit(cred)} title="Editar">
+            <Pencil size={13} />
+          </Button>
+          <Button className="px-2 py-1 text-xs text-red-400" onClick={() => onDelete(cred)} title="Eliminar">
+            <Trash2 size={13} />
+          </Button>
+        </div>
+      </li>
+    )
+  }
+
   const hasFilters = search.trim() !== '' || filterCategory !== 'all' || filterSub !== 'all' || filterType !== 'all'
-
-  // Grupos por servicio (panel) a partir de las filas filtradas
-  const groups = useMemo(() => {
-    const map = new Map<string, { panel: Panel; items: { cred: PanelCredential; panel: Panel }[] }>()
-    for (const r of filteredRows) {
-      const p = r.panel!
-      if (!map.has(p.id)) map.set(p.id, { panel: p, items: [] })
-      map.get(p.id)!.items.push({ cred: r.cred, panel: p })
-    }
-    return Array.from(map.entries())
-  }, [filteredRows])
-
-  function togglePanel(panelId: string) {
-    setExpandedPanels((prev) => {
-      const next = new Set(prev)
-      if (next.has(panelId)) next.delete(panelId)
-      else next.add(panelId)
-      return next
-    })
-  }
-
-  function expandAll() {
-    setExpandedPanels(new Set(groups.map(([id]) => id)))
-  }
-
-  function collapseAll() {
-    setExpandedPanels(new Set())
-  }
 
   return (
     <div className="mx-auto max-w-5xl space-y-4 p-4">
@@ -310,10 +379,10 @@ export default function Vault() {
         )}
         {!hasFilters && (
           <div className="ml-auto flex items-center gap-1">
-            <Button className="px-2 py-1 text-xs" onClick={expandAll} title="Expandir todos los servicios">
+            <Button className="px-2 py-1 text-xs" onClick={expandAll} title="Expandir todos los subservicios">
               Expandir todo
             </Button>
-            <Button className="px-2 py-1 text-xs" onClick={collapseAll} title="Colapsar todos los servicios">
+            <Button className="px-2 py-1 text-xs" onClick={collapseAll} title="Colapsar todos los subservicios">
               Colapsar todo
             </Button>
           </div>
@@ -330,109 +399,69 @@ export default function Vault() {
         <EmptyState>Ningún acceso coincide con los filtros.</EmptyState>
       ) : (
         <div className="card overflow-hidden">
-          {groups.map(([panelId, group]) => {
-            const isExpanded = hasFilters || expandedPanels.has(panelId)
-            const cat = group.panel.category || 'General'
-            const sub = group.panel.subcategory || 'General'
+          {serviceGroups.map(([sub, cats]) => {
+            const isExpanded = hasFilters || expandedSubs.has(sub)
+            const total = Array.from(cats.values()).reduce((n, list) => n + list.length, 0)
+            const logo = officialLogoForSubservice(sub) ?? (cats.values().next().value?.[0]?.panel.logo_url ?? null)
+            const multipleCats = cats.size > 1
             return (
-              <section key={panelId} className="border-b border-slate-800 last:border-b-0">
-                {/* Cabecera del servicio (clic = colapsar/expandir) */}
+              <section key={sub} className="border-b border-slate-800 last:border-b-0">
+                {/* Cabecera del subservicio (clic = colapsar/expandir) */}
                 <div className="flex items-center gap-1 px-2 py-2 bg-slate-950/50">
                   <button
                     type="button"
-                    onClick={() => togglePanel(panelId)}
+                    onClick={() => toggleSub(sub)}
                     className="flex min-w-0 flex-1 items-center gap-2.5 px-1.5 py-0.5 text-left transition-colors hover:bg-slate-800/40 rounded-lg"
-                    title={isExpanded ? 'Colapsar' : `Mostrar los ${group.items.length} accesos de «${group.panel.name}»`}
+                    title={isExpanded ? 'Colapsar' : `Mostrar los ${total} accesos de «${sub}»`}
                   >
                     <ChevronDown
                       size={14}
                       className={clsx('shrink-0 text-slate-500 transition-transform duration-200', isExpanded && 'rotate-180')}
                     />
-                    {group.panel.logo_url ? (
+                    {logo ? (
                       <img
-                        src={group.panel.logo_url}
+                        src={logo}
                         alt=""
                         className="h-7 w-7 shrink-0 rounded-lg bg-slate-800 object-contain p-0.5 ring-1 ring-slate-700/50"
                       />
                     ) : (
                       <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-slate-800 text-[11px] font-bold text-slate-300 ring-1 ring-slate-700/50">
-                        {(group.panel.name || 'P').slice(0, 1).toUpperCase()}
+                        {sub.slice(0, 1).toUpperCase()}
                       </span>
                     )}
-                    <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-100">
-                      {group.panel.name}
-                    </span>
-                    <Badge tone="slate">
-                      <Folder size={10} /> {cat}
-                    </Badge>
-                    {sub !== 'General' && (
-                      <Badge tone="sky">
-                        <Layers size={10} /> {sub}
-                      </Badge>
-                    )}
-                    {group.panel.is_shared && (
-                      <Badge tone="violet">
-                        <Users size={10} /> Compartido
-                      </Badge>
-                    )}
+                    <span className="min-w-0 truncate text-sm font-semibold text-slate-100">{sub}</span>
                     <span className="shrink-0 rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-mono text-slate-400">
-                      {group.items.length} {group.items.length === 1 ? 'acceso' : 'accesos'}
+                      {total} {total === 1 ? 'acceso' : 'accesos'}
                     </span>
                   </button>
-                  <Button
-                    className="px-2 py-1 text-xs text-sky-400 shrink-0"
-                    title={`Abrir ${group.panel.name}`}
-                    onClick={() => openPanelTab(group.panel)}
-                  >
-                    <ExternalLink size={13} />
-                  </Button>
+                  {sub.toLowerCase() === 'plex' && (
+                    <Button
+                      className="px-2 py-1 text-xs text-sky-400 shrink-0"
+                      title="Abrir escritorio de Plex"
+                      onClick={() => window.open('https://app.plex.tv/desktop#!', '_blank', 'noopener,noreferrer')}
+                    >
+                      <ExternalLink size={13} />
+                    </Button>
+                  )}
                 </div>
 
-                {/* Accesos del servicio */}
+                {/* Accesos agrupados por categoría */}
                 {isExpanded && (
-                  <ul className="divide-y divide-slate-800/60">
-                    {group.items.map(({ cred }) => (
-                      <li key={cred.id} className="flex flex-wrap items-center gap-2 px-3 py-2 pl-11 hover:bg-slate-800/40 transition-colors">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="truncate text-xs font-medium text-slate-200">{cred.label}</span>
-                            <span className="truncate font-mono text-[11px] text-slate-400">{cred.username}</span>
+                  <div className="pb-1">
+                    {Array.from(cats.entries()).map(([cat, list]) => (
+                      <div key={cat}>
+                        {multipleCats && (
+                          <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500 border-t border-slate-800/50">
+                            <Folder size={10} /> {cat}
+                            <span className="text-slate-600">({list.length})</span>
                           </div>
-                          <div className="flex items-center gap-2 mt-0.5 text-[11px]">
-                            <span className="truncate font-mono text-amber-300/90">
-                              {revealed[cred.id] !== undefined ? revealed[cred.id] : '••••••••••••'}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex shrink-0 items-center gap-1">
-                          <Button className="px-2 py-1 text-xs" onClick={() => copyUsername(cred)} title="Copiar usuario">
-                            {copiedId === cred.id + ':user' ? (
-                              <ClipboardCheck size={13} className="text-emerald-400" />
-                            ) : (
-                              <ClipboardCopy size={13} />
-                            )}
-                          </Button>
-                          <Button className="px-2 py-1 text-xs" onClick={() => copyPassword(cred)} title="Copiar contraseña">
-                            {copiedId === cred.id ? (
-                              <ClipboardCheck size={13} className="text-emerald-400" />
-                            ) : (
-                              <KeyRound size={13} />
-                            )}
-                          </Button>
-                          <Button className="px-2 py-1 text-xs" onClick={() => toggleReveal(cred)} title="Revelar (10 s)">
-                            {revealed[cred.id] !== undefined ? <EyeOff size={13} /> : <Eye size={13} />}
-                          </Button>
-                          <Button className="px-2 py-1 text-xs" onClick={() => openEdit(cred)} title="Editar">
-                            <Pencil size={13} />
-                          </Button>
-                          <Button className="px-2 py-1 text-xs text-red-400" onClick={() => onDelete(cred)} title="Eliminar">
-                            <Trash2 size={13} />
-                          </Button>
-                        </div>
-                      </li>
+                        )}
+                        <ul className="divide-y divide-slate-800/60">
+                          {list.map(({ cred, panel }) => renderRow(cred, panel, multipleCats))}
+                        </ul>
+                      </div>
                     ))}
-                  </ul>
+                  </div>
                 )}
               </section>
             )
