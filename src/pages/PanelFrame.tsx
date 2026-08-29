@@ -14,6 +14,7 @@ import {
   Layout,
   Lock,
   RefreshCw,
+  ShieldAlert,
   ShieldCheck,
   User,
   Users,
@@ -79,7 +80,7 @@ export default function PanelFrame() {
   const selected = credentials.find((c) => c.id === credentialId) ?? credentials[0] ?? null
   const [reloadKey, setReloadKey] = useState(0)
 
-  // --- Auto-login de Plex: token oficial de plex.tv inyectado en la URL del web app ---
+  // --- Conexión con Plex: flujo oficial PIN de plex.tv (popup de auth) ---
   const isPlex = useMemo(
     () => (panel?.subcategory ?? '').toLowerCase().includes('plex'),
     [panel?.subcategory]
@@ -89,52 +90,72 @@ export default function PanelFrame() {
   const [isSecurePage] = useState(() => window.location.protocol === 'https:')
   const isMixedContent = isSecurePage && !!panel && panel.url.toLowerCase().startsWith('http:')
 
-  const [plexAuthUrl, setPlexAuthUrl] = useState<string | null>(null)
-  const [plexStatus, setPlexStatus] = useState<'idle' | 'working' | 'ok' | 'error'>('idle')
+  const PLEX_DESKTOP_URL = 'https://app.plex.tv/desktop'
+  const [plexConnect, setPlexConnect] = useState<'idle' | 'starting' | 'waiting' | 'authorized' | 'error'>('idle')
   const [plexError, setPlexError] = useState('')
+  const popupRef = useRef<Window | null>(null)
 
   useEffect(() => {
-    if (!isPlex || !selected || !panelOrigin || viewMode !== 'frame') {
-      setPlexAuthUrl(null)
-      setPlexStatus('idle')
-      setPlexError('')
-      return
+    return () => {
+      popupRef.current?.close()
     }
-    let cancelled = false
-    setPlexStatus('working')
+  }, [])
+
+  function connectPlex() {
+    setPlexConnect('starting')
     setPlexError('')
+    // Abrir el popup de forma síncrona para que el navegador no lo bloquee
+    popupRef.current = window.open('about:blank', 'plex-auth', 'width=640,height=760')
     supabase.functions
-      .invoke<{ provider: string; auth_token: string; detail?: string; error?: string }>('service-auth', {
-        body: { credential_id: selected.id, service: 'plex' },
+      .invoke<{ pin_id: number; code: string; auth_url: string; error?: string }>('service-auth', {
+        body: { service: 'plex', mode: 'pin-start' },
       })
       .then(({ data, error }) => {
-        if (cancelled) return
-        if (error || !data?.auth_token) {
-          setPlexStatus('error')
-          setPlexError(data?.detail ?? data?.error ?? error?.message ?? 'No se pudo obtener la sesión de Plex')
+        if (error || !data?.auth_url) {
+          setPlexConnect('error')
+          setPlexError(data?.error ?? error?.message ?? 'No se pudo iniciar la conexión con Plex')
+          popupRef.current?.close()
           return
         }
-        try {
-          const u = new URL('/web/index.html', panelOrigin)
-          u.searchParams.set('X-Plex-Token', data.auth_token)
-          u.hash = '#!/'
-          setPlexAuthUrl(u.toString())
-          setPlexStatus('ok')
-        } catch {
-          setPlexStatus('error')
-          setPlexError('URL del panel no válida')
+        if (popupRef.current && !popupRef.current.closed) {
+          popupRef.current.location.href = data.auth_url
+        } else {
+          window.open(data.auth_url, '_blank', 'noopener')
         }
+        setPlexConnect('waiting')
+
+        const started = Date.now()
+        const poll = window.setInterval(() => {
+          if (Date.now() - started > 5 * 60_000) {
+            window.clearInterval(poll)
+            setPlexConnect('error')
+            setPlexError('Tiempo agotado esperando la autorización de Plex')
+            return
+          }
+          supabase.functions
+            .invoke<{ status: string; auth_token?: string; error?: string }>('service-auth', {
+              body: { service: 'plex', mode: 'pin-check', pin_id: data.pin_id, code: data.code },
+            })
+            .then(({ data: chk }) => {
+              if (chk?.status === 'authorized') {
+                window.clearInterval(poll)
+                setPlexConnect('authorized')
+                popupRef.current?.close()
+                // El navegador queda autenticado en app.plex.tv: abrir el escritorio
+                window.open(PLEX_DESKTOP_URL + '#!/', '_blank', 'noopener')
+              }
+            })
+            .catch(() => {
+              /* reintenta en el siguiente ciclo */
+            })
+        }, 3000)
       })
       .catch(() => {
-        if (!cancelled) {
-          setPlexStatus('error')
-          setPlexError('No se pudo contactar con plex.tv')
-        }
+        setPlexConnect('error')
+        setPlexError('No se pudo contactar con el hub')
+        popupRef.current?.close()
       })
-    return () => {
-      cancelled = true
-    }
-  }, [isPlex, selected?.id, panelOrigin, viewMode, reloadKey])
+  }
 
   const [status, setStatus] = useState<LoginStatus>('idle')
   const [message, setMessage] = useState('')
@@ -274,8 +295,8 @@ export default function PanelFrame() {
 
   function openInNewTab() {
     if (!panel) return
-    // Para Plex, abrir con la sesión ya iniciada si tenemos el token
-    window.open(isPlex && plexAuthUrl ? plexAuthUrl : panel.url, '_blank', 'noopener,noreferrer')
+    // Para Plex, abrir el escritorio oficial (sesión compartida en el navegador)
+    window.open(isPlex ? 'https://app.plex.tv/desktop#!/' : panel.url, '_blank', 'noopener,noreferrer')
   }
 
   if (panelQuery.isLoading) {
@@ -615,13 +636,10 @@ export default function PanelFrame() {
             </div>
           )}
 
-          {/* Estado del auto-login (paneles propios con puente o Plex con token) */}
-          {(isOwn || isPlex) && (status !== 'idle' || message || plexStatus === 'error') && (
+          {/* Estado del auto-login (paneles propios con puente) */}
+          {isOwn && (status !== 'idle' || message) && (
             <div className="flex flex-wrap items-center gap-2 border-b border-slate-800/60 bg-slate-950/60 px-4 py-1 text-xs">
-              {isPlex && plexStatus === 'working' && <span className="text-sky-300">Obteniendo sesión de Plex…</span>}
-              {isPlex && plexStatus === 'ok' && <span className="text-emerald-400">Sesión de Plex obtenida: abriendo el panel con tu cuenta</span>}
-              {isPlex && plexStatus === 'error' && <span className="text-red-400">Plex: {plexError}</span>}
-              {!isPlex && selected && status !== 'error' && status !== 'idle' && (
+              {selected && status !== 'error' && status !== 'idle' && (
                 <span
                   className={clsx(
                     status === 'done'
@@ -638,32 +656,57 @@ export default function PanelFrame() {
             </div>
           )}
 
-          {/* Aviso de mixed content: panel HTTP embebido en página HTTPS */}
-          {isMixedContent && (
+          {/* Plex: no permite embeberse → conexión oficial por PIN de plex.tv */}
+          {isPlex && (
+            <div className="mx-3 mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-xs space-y-2.5">
+              <p className="flex items-center gap-1.5 font-semibold text-amber-300">
+                <ShieldAlert size={14} /> Plex no permite mostrarse embebido: conéctate con 1 clic
+              </p>
+              <p className="text-slate-400">
+                Plex bloquea cargarse dentro de otras webs. Pulsa «Conectar con Plex»: se abrirá la ventana oficial de
+                Plex para iniciar sesión (una sola vez por navegador; tus credenciales están arriba para copiar) y a
+                continuación se abrirá tu escritorio de Plex ya autenticado.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                {plexConnect === 'authorized' || plexConnect === 'waiting' ? (
+                  <>
+                    <Badge tone="green">
+                      <Check size={11} /> {plexConnect === 'authorized' ? 'Plex conectado' : 'Esperando autorización…'}
+                    </Badge>
+                    <Button
+                      variant="primary"
+                      className="text-xs"
+                      onClick={() => window.open(PLEX_DESKTOP_URL + '#!/', '_blank', 'noopener,noreferrer')}
+                    >
+                      <ArrowUpRight size={13} /> Abrir escritorio de Plex
+                    </Button>
+                  </>
+                ) : (
+                  <Button variant="primary" className="text-xs" onClick={connectPlex} disabled={plexConnect === 'starting'}>
+                    {plexConnect === 'starting' ? 'Abriendo Plex…' : 'Conectar con Plex'}
+                  </Button>
+                )}
+                <Button className="text-xs" onClick={openInNewTab}>
+                  <ArrowUpRight size={13} /> Abrir {panel.name} directamente
+                </Button>
+              </div>
+              {plexConnect === 'error' && plexError && <p className="text-red-400">{plexError}</p>}
+            </div>
+          )}
+
+          {/* Aviso de mixed content: panel HTTP embebido en página HTTPS (paneles no Plex) */}
+          {!isPlex && isMixedContent && (
             <div className="mx-3 mt-3 rounded-xl border border-amber-700/50 bg-amber-950/20 p-4 text-xs space-y-2.5">
               <p className="flex items-center gap-1.5 font-semibold text-amber-300">
                 <AlertTriangle size={14} /> El navegador bloquea este panel dentro del hub
               </p>
               <p className="text-slate-300">
                 El panel se sirve por <strong>HTTP</strong> y el hub está en <strong>HTTPS</strong>: por seguridad, el
-                navegador impide mostrarlo embebido. Opciones:
+                navegador impide mostrarlo embebido. Permite contenido no seguro para este sitio (icono de aviso 🔒/⚠ de
+                la barra de direcciones → Permisos del sitio → Contenido no seguro → Permitir) y recarga; o ábrelo en
+                una pestaña nueva.
               </p>
-              <ol className="list-decimal ml-4 space-y-1 text-slate-400">
-                <li>
-                  <strong>Abrir Plex con sesión iniciada</strong> (abajo): se abre en una pestaña nueva ya autenticado.
-                </li>
-                <li>
-                  O permite contenido no seguro para este sitio: icono de aviso 🔒/⚠ de la barra de direcciones →
-                  «Permisos del sitio» → <strong>Contenido no seguro → Permitir</strong> → recarga la página y el marco
-                  cargará dentro del hub.
-                </li>
-              </ol>
               <div className="flex flex-wrap gap-2 pt-1">
-                {isPlex && plexAuthUrl && (
-                  <Button variant="primary" className="text-xs" onClick={() => window.open(plexAuthUrl, '_blank', 'noopener,noreferrer')}>
-                    <ArrowUpRight size={13} /> Abrir Plex con sesión iniciada
-                  </Button>
-                )}
                 <Button className="text-xs" onClick={openInNewTab}>
                   <ArrowUpRight size={13} /> Abrir {panel.name} en pestaña nueva
                 </Button>
@@ -671,12 +714,12 @@ export default function PanelFrame() {
             </div>
           )}
 
-          {/* Iframe a pantalla completa (con token de Plex si aplica) */}
-          {!isMixedContent && (
+          {/* Iframe (solo paneles que el navegador permite embeber) */}
+          {!isPlex && !isMixedContent && (
             <iframe
               key={reloadKey}
               ref={iframeRef}
-              src={isPlex && plexAuthUrl ? plexAuthUrl : panel.url}
+              src={panel.url}
               title={panel.name}
               className="min-h-0 flex-1 border-0 bg-white"
               allow="clipboard-write; camera; microphone; geolocation"

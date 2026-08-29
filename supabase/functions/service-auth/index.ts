@@ -1,11 +1,12 @@
 // ============================================================================
 // service-auth: login automático en servicios de terceros (Plex).
-// Entrada:  { credential_id, service: 'plex' }
-// Salida:   { provider: 'plex', auth_token }
-// - Verifica JWT y propiedad de la credencial (solo el dueño).
-// - Descifra la contraseña vía super_reveal_credential (SECURITY DEFINER).
-// - Hace login en plex.tv con la API oficial y devuelve el authToken, que el
-//   hub inyecta en la URL del web app del servidor (X-Plex-Token).
+// Modos:
+//   { service: 'plex', credential_id }                          → signin por credencial
+//   { service: 'plex', mode: 'pin-start' }                       → crea PIN (id + code)
+//   { service: 'plex', mode: 'pin-check', pin_id, code }         → comprueba el PIN
+// El flujo PIN es el enlace de auth oficial de Plex:
+//   el usuario abre https://app.plex.tv/auth#?clientID=…&code=…  y, al iniciar
+//   sesión ahí, el navegador queda autenticado para app.plex.tv/desktop.
 // ============================================================================
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
 
@@ -14,6 +15,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
+
+const PLEX_CLIENT_IDENTIFIER = 'b1a7f2c4-0000-4a5b-8c9d-superpanel01'
 
 function adminClient() {
   const url = Deno.env.get('SUPABASE_URL') ?? ''
@@ -27,8 +30,6 @@ function json(body: unknown, status = 200): Response {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
 }
-
-const PLEX_CLIENT_IDENTIFIER = 'b1a7f2c4-0000-4a5b-8c9d-superpanel01'
 
 async function plexSignin(login: string, password: string): Promise<{ ok: boolean; token?: string; detail?: string }> {
   const resp = await fetch('https://plex.tv/api/v2/users/signin', {
@@ -71,15 +72,55 @@ Deno.serve(async (req) => {
 
   let credentialId = ''
   let service = 'plex'
+  let mode = 'signin'
+  let pinId = 0
+  let pinCode = ''
   try {
-    const body = (await req.json()) as { credential_id?: string; service?: string }
+    const body = (await req.json()) as { credential_id?: string; service?: string; mode?: string; pin_id?: number; code?: string }
     credentialId = body.credential_id ?? ''
     service = (body.service ?? 'plex').toLowerCase()
+    mode = body.mode ?? 'signin'
+    pinId = Number(body.pin_id ?? 0)
+    pinCode = body.code ?? ''
   } catch (_e) {
     return json({ error: 'body_invalido' }, 400)
   }
-  if (!credentialId) return json({ error: 'credential_id_requerido' }, 400)
   if (service !== 'plex') return json({ error: 'servicio_no_soportado' }, 400)
+
+  // ---- Flujo PIN (enlace de auth oficial de Plex) ----
+  if (mode === 'pin-start') {
+    const resp = await fetch('https://plex.tv/api/v2/pins?strong=true', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'X-Plex-Client-Identifier': PLEX_CLIENT_IDENTIFIER,
+        'X-Plex-Product': 'SuperPanel',
+      },
+    })
+    if (!resp.ok) return json({ error: 'pin_error', detail: `plex.tv HTTP ${resp.status}` }, 502)
+    const payload = (await resp.json()) as { id: number; code: string }
+    return json({
+      pin_id: payload.id,
+      code: payload.code,
+      client_id: PLEX_CLIENT_IDENTIFIER,
+      auth_url: `https://app.plex.tv/auth#?clientID=${PLEX_CLIENT_IDENTIFIER}&code=${payload.code}`,
+    })
+  }
+
+  if (mode === 'pin-check') {
+    if (!pinId || !pinCode) return json({ error: 'pin_faltante' }, 400)
+    const resp = await fetch(
+      `https://plex.tv/api/v2/pins/${pinId}?code=${encodeURIComponent(pinCode)}`,
+      { headers: { Accept: 'application/json', 'X-Plex-Client-Identifier': PLEX_CLIENT_IDENTIFIER } }
+    )
+    if (!resp.ok) return json({ error: 'pin_error', detail: `plex.tv HTTP ${resp.status}` }, 502)
+    const payload = (await resp.json()) as { authToken?: string }
+    if (payload.authToken) return json({ status: 'authorized', auth_token: payload.authToken })
+    return json({ status: 'pending' })
+  }
+
+  // ---- Flujo signin por credencial ----
+  if (!credentialId) return json({ error: 'credential_id_requerido' }, 400)
 
   const { data: cred, error: credError } = await admin
     .from('super_panel_credentials')
@@ -91,11 +132,9 @@ Deno.serve(async (req) => {
   // Solo el dueño de la credencial
   if (cred.owner_id !== user.id) return json({ error: 'forbidden' }, 403)
 
-  // La contraseña llega descifrada desde la función SECURITY DEFINER
   const { data: password, error: revealError } = await admin.rpc('super_reveal_credential', { p_id: cred.id })
   if (revealError || !password) return json({ error: 'no_se_pudo_descifrar' }, 500)
 
-  // El acceso a Plex es con el email de la credencial
   const signin = await plexSignin(cred.username, password)
   if (!signin.ok || !signin.token) {
     return json({ error: 'login_plex_invalido', detail: signin.detail }, 401)
