@@ -7,6 +7,7 @@ import {
   fetchCredentials,
   fetchHistoricalSharedUsers,
   fetchPanelShares,
+  fetchUserDirectory,
   removePanelShare,
   savePanel,
   sharePanel,
@@ -95,6 +96,12 @@ export default function PanelFormModal({
     enabled: open,
   })
 
+  const directoryQuery = useQuery({
+    queryKey: ['user-directory'],
+    queryFn: fetchUserDirectory,
+    enabled: open,
+  })
+
   const historicalUsersQuery = useQuery({
     queryKey: ['historical-shared-users'],
     queryFn: fetchHistoricalSharedUsers,
@@ -119,26 +126,37 @@ export default function PanelFormModal({
   const allCredentials = credsQuery.data ?? []
 
   // Combinar usuarios históricos y colaboradores excluyendo el propio email
+  // (con el rol de cada usuario al lado del nombre)
   const availableShareUsers = useMemo(() => {
     const map = new Map<string, { email: string; label: string }>()
     const myEmail = (user?.email || '').toLowerCase()
+    const roleMap = new Map<string, string>()
+    for (const d of directoryQuery.data ?? []) {
+      roleMap.set(d.email.toLowerCase(), d.role === 'superadmin' ? 'Superadmin' : 'Cliente')
+    }
+
+    const labelOf = (email: string, name?: string) => {
+      const role = roleMap.get(email.toLowerCase())
+      const base = name ? `${name} (${email})` : email
+      return role ? `${base} — ${role}` : base
+    }
 
     for (const c of collaborators) {
       const em = c.email.toLowerCase()
       if (em !== myEmail) {
-        map.set(em, { email: c.email, label: c.name ? `${c.name} (${c.email})` : c.email })
+        map.set(em, { email: c.email, label: labelOf(c.email, c.name) })
       }
     }
 
     for (const h of historicalUsers) {
       const em = h.email.toLowerCase()
       if (em !== myEmail && !map.has(em)) {
-        map.set(em, { email: h.email, label: h.name ? `${h.name} (${h.email})` : h.email })
+        map.set(em, { email: h.email, label: labelOf(h.email, h.name) })
       }
     }
 
     return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label))
-  }, [collaborators, historicalUsers, user?.email])
+  }, [collaborators, historicalUsers, directoryQuery.data, user?.email])
 
   const panelCred = useMemo(() => {
     if (!initial?.id) return null

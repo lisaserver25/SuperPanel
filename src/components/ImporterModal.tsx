@@ -1,10 +1,13 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, CheckCircle2, FileUp, Search, Share2, Upload } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, FileUp, Search, Share2, Upload, Users } from 'lucide-react'
 import { parsePanelListing, type ParsedPanelEntry } from '../lib/importer'
-import { fetchPanels, savePanel, sharePanel, upsertCredential } from '../lib/queries'
+import { fetchPanels, fetchUserDirectory, savePanel, sharePanel, upsertCredential } from '../lib/queries'
 import { useAuth } from '../lib/auth'
-import { Badge, Button, Field, Input, Modal } from './ui'
+import { Badge, Button, Field, Input, Modal, Select } from './ui'
+
+const PRESET_SERVICES = ['Plex', 'Emby', 'Jellyfin', 'IPTV', 'Music'] as const
+const CUSTOM_OPTION = '__custom__'
 
 interface ImportResult {
   imported: number
@@ -28,16 +31,27 @@ export default function ImporterModal({
   const qc = useQueryClient()
 
   const [text, setText] = useState('')
-  const [category, setCategory] = useState(defaultCategory || 'Plex')
-  const [shareEmails, setShareEmails] = useState('')
+  const [category, setCategory] = useState<string>(defaultCategory || 'Plex')
+  const [customCategory, setCustomCategory] = useState('')
+  const [selectedEmails, setSelectedEmails] = useState<string[]>([])
+  const [manualEmail, setManualEmail] = useState('')
   const [entries, setEntries] = useState<ParsedPanelEntry[] | null>(null)
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState<ImportResult | null>(null)
   const [error, setError] = useState('')
 
+  // Categoría final aplicada al lote
+  const finalCategory = (category === CUSTOM_OPTION ? customCategory.trim() : category.trim()) || 'General'
+
   const panelsQuery = useQuery({
     queryKey: ['panels'],
     queryFn: fetchPanels,
+    enabled: open,
+  })
+
+  const directoryQuery = useQuery({
+    queryKey: ['user-directory'],
+    queryFn: fetchUserDirectory,
     enabled: open,
   })
 
@@ -49,11 +63,43 @@ export default function ImporterModal({
     return set
   }, [panelsQuery.data])
 
+  // Directorio excluyéndome a mí
+  const directory = useMemo(() => {
+    const myEmail = (user?.email ?? '').toLowerCase()
+    return (directoryQuery.data ?? []).filter((u) => u.email.toLowerCase() !== myEmail)
+  }, [directoryQuery.data, user?.email])
+
+  function toggleDirectoryUser(email: string) {
+    setSelectedEmails((prev) =>
+      prev.includes(email) ? prev.filter((e) => e !== email) : [...prev, email]
+    )
+  }
+
+  function addManualEmail() {
+    const norm = manualEmail.trim().toLowerCase()
+    if (!norm || !norm.includes('@')) return
+    if (!selectedEmails.includes(norm)) setSelectedEmails((prev) => [...prev, norm])
+    setManualEmail('')
+  }
+
+  // Emails finales a invitar: los marcados del directorio + los manuales
+  const targetEmails = useMemo(
+    () => Array.from(new Set(selectedEmails.map((e) => e.toLowerCase()))),
+    [selectedEmails]
+  )
+
   const categoryList = useMemo(() => {
-    const set = new Set<string>(existingCategories)
-    set.add('Plex')
+    const set = new Set<string>([...PRESET_SERVICES, ...existingCategories])
     return Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b))
   }, [existingCategories])
+
+  // Al abrir, resetear la categoría al valor propuesto
+  useEffect(() => {
+    if (open) {
+      setCategory(defaultCategory || 'Plex')
+      setCustomCategory('')
+    }
+  }, [open, defaultCategory])
 
   function analyze() {
     setError('')
@@ -72,14 +118,8 @@ export default function ImporterModal({
     setEntries(null)
     setResult(null)
     setError('')
-    setShareEmails('')
-  }
-
-  function targetEmails(): string[] {
-    return shareEmails
-      .split(/[,;\s]+/)
-      .map((e) => e.trim().toLowerCase())
-      .filter((e) => e.includes('@'))
+    setSelectedEmails([])
+    setManualEmail('')
   }
 
   async function runImport() {
@@ -87,8 +127,8 @@ export default function ImporterModal({
     setImporting(true)
     setError('')
 
-    const cat = category.trim() || 'General'
-    const emails = targetEmails()
+    const cat = finalCategory
+    const emails = targetEmails
     const res: ImportResult = { imported: 0, shared: 0, skipped: [], errors: [] }
 
     for (const e of entries) {
@@ -172,26 +212,123 @@ export default function ImporterModal({
 
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
           <Field label="Categoría para todos los paneles importados">
-            <Input
-              required
-              list="importer-cat-datalist"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              placeholder="Ej: Plex"
-            />
-            <datalist id="importer-cat-datalist">
+            <Select value={category} onChange={(e) => setCategory(e.target.value)}>
               {categoryList.map((c) => (
-                <option key={c} value={c} />
+                <option key={c} value={c}>
+                  {c}
+                </option>
               ))}
-            </datalist>
+              <option value={CUSTOM_OPTION}>Personalizado…</option>
+            </Select>
+            {category === CUSTOM_OPTION && (
+              <Input
+                required
+                value={customCategory}
+                onChange={(e) => setCustomCategory(e.target.value)}
+                placeholder="Nombre de la categoría personalizada"
+                className="mt-1.5 py-1 text-[11px]"
+              />
+            )}
+            <span className="block pt-0.5 text-[10px] text-slate-500">
+              Las categorías personalizadas se guardan para próximas importaciones.
+            </span>
           </Field>
-          <Field label="Compartir todos con (opcional, emails separados por comas)">
+        </div>
+
+        {/* Selector de usuarios a invitar (con su rol) */}
+        <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-2.5 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-200">
+              <Users size={13} className="text-sky-400" />
+              Compartir todos con:
+            </span>
+            {targetEmails.length > 0 && (
+              <span className="text-[10px] text-sky-400">{targetEmails.length} seleccionado(s)</span>
+            )}
+          </div>
+
+          {directoryQuery.isLoading ? (
+            <p className="text-[11px] text-slate-500">Cargando usuarios…</p>
+          ) : directory.length === 0 ? (
+            <p className="text-[11px] text-slate-500">
+              No hay otros usuarios registrados todavía. Añade usuarios desde «Usuarios» (superadmin) o por email abajo.
+            </p>
+          ) : (
+            <div className="max-h-36 overflow-y-auto rounded border border-slate-800 divide-y divide-slate-800/60">
+              {directory.map((u) => {
+                const checked = selectedEmails.includes(u.email.toLowerCase())
+                return (
+                  <label
+                    key={u.id}
+                    className="flex cursor-pointer items-center gap-2 px-2 py-1.5 hover:bg-slate-800/60"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleDirectoryUser(u.email.toLowerCase())}
+                      className="h-3.5 w-3.5 accent-sky-500"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-[11px] text-slate-200">
+                      {u.full_name ? (
+                        <>
+                          {u.full_name} <span className="text-slate-500">({u.email})</span>
+                        </>
+                      ) : (
+                        u.email
+                      )}
+                    </span>
+                    <Badge tone={u.role === 'superadmin' ? 'sky' : 'slate'}>
+                      {u.role === 'superadmin' ? 'Superadmin' : 'Cliente'}
+                    </Badge>
+                  </label>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Email manual (usuario que aún no está en el listado) */}
+          <div className="flex items-center gap-1.5">
             <Input
-              value={shareEmails}
-              onChange={(e) => setShareEmails(e.target.value)}
-              placeholder="socio1@correo.com, socio2@correo.com"
+              type="email"
+              value={manualEmail}
+              onChange={(e) => setManualEmail(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  addManualEmail()
+                }
+              }}
+              placeholder="Otro correo que no esté en la lista…"
+              className="py-1 text-[11px]"
             />
-          </Field>
+            <Button type="button" onClick={addManualEmail} className="shrink-0 px-2.5 py-1 text-xs">
+              Añadir
+            </Button>
+          </div>
+
+          {/* Chips de seleccionados */}
+          {targetEmails.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1 pt-0.5">
+              <span className="inline-flex items-center gap-1 text-[10px] text-sky-400 mr-1">
+                <Share2 size={10} /> Se invitará:
+              </span>
+              {targetEmails.map((email) => (
+                <span
+                  key={email}
+                  className="inline-flex items-center gap-1 rounded bg-sky-950/80 px-2 py-0.5 text-[11px] text-sky-300 border border-sky-800/80"
+                >
+                  {email}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedEmails((prev) => prev.filter((e) => e !== email))}
+                    className="ml-0.5 font-bold text-sky-400 hover:text-red-400"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         {error && <p className="text-red-400">{error}</p>}
@@ -215,9 +352,9 @@ export default function ImporterModal({
                   <AlertTriangle size={11} /> {warnCount} sin email/contraseña
                 </Badge>
               )}
-              {targetEmails().length > 0 && (
+              {targetEmails.length > 0 && (
                 <Badge tone="violet">
-                  <Share2 size={11} /> Se compartirá con {targetEmails().length} usuario(s)
+                  <Share2 size={11} /> Se compartirá con {targetEmails.length} usuario(s)
                 </Badge>
               )}
             </div>
@@ -283,7 +420,7 @@ export default function ImporterModal({
         {result && (
           <div className="space-y-2.5 rounded-lg border border-emerald-800/60 bg-emerald-950/20 p-3">
             <p className="flex items-center gap-1.5 text-sm font-semibold text-emerald-300">
-              <CheckCircle2 size={15} /> {result.imported} panel(es) importados en «{category.trim() || 'General'}»
+              <CheckCircle2 size={15} /> {result.imported} panel(es) importados en «{finalCategory}»
               {result.shared > 0 && ` · ${result.shared} invitaciones enviadas`}
             </p>
             {result.skipped.length > 0 && (

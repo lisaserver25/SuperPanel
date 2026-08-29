@@ -81,6 +81,25 @@ export async function deletePanelLogo(domain: string): Promise<void> {
   if (error) throw error
 }
 
+// --- Directorio de usuarios (para invitar/compartir, con rol) ---
+
+export interface DirectoryUser {
+  id: string
+  email: string
+  full_name: string | null
+  role: 'superadmin' | 'user'
+}
+
+export async function fetchUserDirectory(): Promise<DirectoryUser[]> {
+  try {
+    const { data, error } = await supabase.rpc('super_user_directory')
+    if (error) throw error
+    return (data ?? []) as DirectoryUser[]
+  } catch {
+    return []
+  }
+}
+
 // --- Ajustes de personalización del hub ---
 
 export async function fetchBrandingSettings(): Promise<BrandingSettings> {
