@@ -2,6 +2,90 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================================
+ * BASE MÓVIL (Android / iOS)
+ * ============================================================================ */
+
+html {
+  /* Sin destello azul al tocar en Android/iOS */
+  -webkit-tap-highlight-color: transparent;
+  text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+  /* Fondo del documento: evita el blanco del rebote de scroll (rubber-band) en iOS */
+  background-color: #020617;
+}
+
+html[data-theme='light'] {
+  background-color: #f1f5f9;
+}
+
+body {
+  /* Evita el desbordamiento horizontal en pantallas pequeñas */
+  overflow-x: hidden;
+}
+
+button,
+a,
+[role='button'],
+input,
+select,
+textarea,
+label {
+  /* Elimina el retardo de 300ms y el zoom por doble toque en táctil */
+  touch-action: manipulation;
+}
+
+/* Altura real del viewport en móvil (100vh falla con la barra del navegador) */
+.h-app {
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* Áreas seguras (notch / barra inferior de gestos en iPhone) */
+.pt-safe { padding-top: env(safe-area-inset-top); }
+.pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+.px-safe {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+/* Reserva espacio para la barra de navegación inferior fija del shell móvil */
+.pb-nav-safe {
+  padding-bottom: calc(4.75rem + env(safe-area-inset-bottom));
+}
+.bottom-safe-dock {
+  bottom: calc(1rem + env(safe-area-inset-bottom));
+}
+
+/* Scroll horizontal sin barra visible (pestañas, filtros, dock) */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* En pantallas pequeñas los inputs pasan a 16px: iOS hace zoom automático
+   al enfocar cualquier input con fuente menor de 16px */
+@media (max-width: 640px) {
+  .input {
+    font-size: 16px !important;
+    line-height: 1.35 !important;
+  }
+}
+
+/* Animaciones propias (no dependemos de tailwindcss-animate) */
+@keyframes sp-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes sp-slide-up {
+  from { transform: translateY(14px); opacity: 0.4; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.animate-fade-in { animation: sp-fade-in 0.16s ease-out; }
+.animate-sheet-up { animation: sp-slide-up 0.22s ease-out; }
+
 @layer base {
   body {
     @apply bg-slate-950 text-slate-100 antialiased;

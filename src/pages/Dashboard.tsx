@@ -400,9 +400,14 @@ export default function Dashboard() {
               )}
 
               {p.is_shared && (
-                <Badge tone="violet">
-                  <Users size={11} /> {p.shared_by_name ? `De ${p.shared_by_name.split(' ')[0]}` : 'Compartido'}
-                </Badge>
+                <>
+                  <Badge tone="violet">
+                    <Users size={11} /> {p.shared_by_name ? `De ${p.shared_by_name.split(' ')[0]}` : 'Compartido'}
+                  </Badge>
+                  <Badge tone={p.share_credential_mode === 'private' ? 'slate' : 'sky'}>
+                    <KeyRound size={10} /> {p.share_credential_mode === 'private' ? 'Acceso privado' : 'Acceso común'}
+                  </Badge>
+                </>
               )}
 
               {credPanelIds.has(p.id) ? (
@@ -456,7 +461,7 @@ export default function Dashboard() {
         <div className="flex items-center gap-2 shrink-0 self-end md:self-center pt-2 md:pt-0 border-t md:border-t-0 border-slate-800/60 w-full md:w-auto justify-end">
           <Button
             variant="primary"
-            className="px-3 py-1.5 text-xs flex items-center gap-1.5 shadow-sm shadow-sky-500/20"
+            className="flex-1 justify-center px-3 py-2 md:flex-none md:py-1.5 text-xs flex items-center gap-1.5 shadow-sm shadow-sky-500/20"
             onClick={() => openPanelTab(p)}
           >
             Abrir
@@ -466,7 +471,7 @@ export default function Dashboard() {
             href={p.url}
             target="_blank"
             rel="noreferrer"
-            className="btn-ghost p-1.5 text-slate-400 hover:text-sky-300 transition-colors rounded-lg"
+            className="btn-ghost p-2 md:p-1.5 text-slate-400 hover:text-sky-300 transition-colors rounded-lg"
             title="Abrir en nueva ventana del navegador"
           >
             <ExternalLink size={15} />
@@ -474,7 +479,7 @@ export default function Dashboard() {
 
           {p.is_shared && p.share_id ? (
             <Button
-              className="p-1.5 text-xs text-slate-300 hover:text-white"
+              className="p-2 md:p-1.5 text-xs text-slate-300 hover:text-white"
               title="Cambiar categoría personal"
               onClick={() => setEditingCustomCategory({ shareId: p.share_id!, category: p.category })}
             >
@@ -482,7 +487,7 @@ export default function Dashboard() {
             </Button>
           ) : (
             <Button
-              className="p-1.5 text-xs text-slate-300 hover:text-white"
+              className="p-2 md:p-1.5 text-xs text-slate-300 hover:text-white"
               title="Editar panel"
               onClick={() => openEdit(p)}
             >
@@ -491,7 +496,7 @@ export default function Dashboard() {
           )}
 
           <Button
-            className="p-1.5 text-xs text-slate-400 hover:text-red-400"
+            className="p-2 md:p-1.5 text-xs text-slate-400 hover:text-red-400"
             title={p.is_shared ? 'Dejar de acceder a este panel compartido' : 'Eliminar panel'}
             onClick={() => onDelete(p)}
           >
@@ -551,9 +556,14 @@ export default function Dashboard() {
             )}
 
             {p.is_shared && (
-              <Badge tone="violet">
-                <Users size={11} /> {p.shared_by_name ? `De ${p.shared_by_name.split(' ')[0]}` : 'Compartido'}
-              </Badge>
+              <>
+                <Badge tone="violet">
+                  <Users size={11} /> {p.shared_by_name ? `De ${p.shared_by_name.split(' ')[0]}` : 'Compartido'}
+                </Badge>
+                <Badge tone={p.share_credential_mode === 'private' ? 'slate' : 'sky'}>
+                  <KeyRound size={10} /> {p.share_credential_mode === 'private' ? 'Privado' : 'Común'}
+                </Badge>
+              </>
             )}
 
             {credPanelIds.has(p.id) && (
@@ -630,33 +640,37 @@ export default function Dashboard() {
     <div className="mx-auto max-w-7xl space-y-5 p-4">
       {/* Encabezado y acciones principales */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Tus Categorías & Paneles</h1>
-          <p className="text-sm text-slate-400">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-semibold">Tus Categorías &amp; Paneles</h1>
+          <p className="hidden sm:block text-sm text-slate-400">
             Crea tus propias categorías personalizadas, organiza tus paneles y accede a ellos en pestañas
           </p>
         </div>
-        <div className="flex items-center gap-2 ml-auto">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
           <Button
             onClick={() => {
               setNewCatName('')
               setNewCatModalOpen(true)
             }}
-            className="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200"
+            className="flex-1 justify-center text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 sm:flex-none"
           >
-            <FolderPlus size={15} className="text-sky-400" /> Añadir categoría
+            <FolderPlus size={15} className="text-sky-400" /> Categoría
           </Button>
           <Button
-            className="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200"
+            className="flex-1 justify-center text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 sm:flex-none"
             onClick={() => {
               setImporterCategory(selectedCategory !== 'all' ? selectedCategory : 'Plex')
               setImporterOpen(true)
             }}
             title="Importar muchos paneles de golpe desde un listado"
           >
-            <FileUp size={15} className="text-emerald-400" /> Importar masivo
+            <FileUp size={15} className="text-emerald-400" /> Importar
           </Button>
-          <Button variant="primary" onClick={() => openCreate(selectedCategory !== 'all' ? selectedCategory : 'General')}>
+          <Button
+            variant="primary"
+            className="flex-1 justify-center sm:flex-none"
+            onClick={() => openCreate(selectedCategory !== 'all' ? selectedCategory : 'General')}
+          >
             <Plus size={16} /> Añadir panel
           </Button>
         </div>
@@ -682,10 +696,10 @@ export default function Dashboard() {
                   </p>
                 </div>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto">
                 <Button
                   variant="primary"
-                  className="text-xs"
+                  className="flex-1 justify-center text-xs sm:flex-none"
                   onClick={() => {
                     setAcceptCategory('General')
                     setAcceptingShare(s)
@@ -693,7 +707,7 @@ export default function Dashboard() {
                 >
                   Aceptar
                 </Button>
-                <Button className="text-xs text-red-400" onClick={() => handleRejectShare(s.id)}>
+                <Button className="flex-1 justify-center text-xs text-red-400 sm:flex-none" onClick={() => handleRejectShare(s.id)}>
                   Rechazar
                 </Button>
               </div>
@@ -912,7 +926,7 @@ export default function Dashboard() {
                   </button>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="hidden items-center gap-2 md:flex">
                   <Button
                     className="text-xs px-2.5 py-1 text-slate-300 hover:text-white border border-slate-800 bg-slate-900/60"
                     onClick={() => setRenamingCategory({ oldName: category, newName: category })}
@@ -921,7 +935,7 @@ export default function Dashboard() {
                     <FolderEdit size={13} /> Renombrar
                   </Button>
                   <Button
-                    className="text-xs px-2.5 py-1 text-sky-300 hover:text-sky-200 border border-slate-800 hover:border-slate-700 bg-slate-900/60"
+                    className="max-w-[220px] truncate text-xs px-2.5 py-1 text-sky-300 hover:text-sky-200 border border-slate-800 hover:border-slate-700 bg-slate-900/60"
                     onClick={() => openCreate(category)}
                     title={`Añadir un panel directamente a ${category}`}
                   >

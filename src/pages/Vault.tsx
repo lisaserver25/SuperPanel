@@ -357,27 +357,27 @@ export default function Vault() {
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1">
-          <Button className="px-2 py-1 text-xs" onClick={() => copyUsername(cred)} title="Copiar usuario">
+        <div className="flex w-full items-center justify-end gap-1 sm:w-auto sm:shrink-0">
+          <Button className="p-2 sm:px-2 sm:py-1 text-xs" onClick={() => copyUsername(cred)} title="Copiar usuario">
             {copiedId === cred.id + ':user' ? (
               <ClipboardCheck size={13} className="text-emerald-400" />
             ) : (
               <ClipboardCopy size={13} />
             )}
           </Button>
-          <Button className="px-2 py-1 text-xs" onClick={() => copyPassword(cred)} title="Copiar contraseña">
+          <Button className="p-2 sm:px-2 sm:py-1 text-xs" onClick={() => copyPassword(cred)} title="Copiar contraseña">
             {copiedId === cred.id ? <ClipboardCheck size={13} className="text-emerald-400" /> : <KeyRound size={13} />}
           </Button>
-          <Button className="px-2 py-1 text-xs" onClick={() => toggleReveal(cred)} title="Revelar (10 s)">
+          <Button className="p-2 sm:px-2 sm:py-1 text-xs" onClick={() => toggleReveal(cred)} title="Revelar (10 s)">
             {revealed[cred.id] !== undefined ? <EyeOff size={13} /> : <Eye size={13} />}
           </Button>
-          <Button className="px-2 py-1 text-xs text-sky-400" title={`Abrir ${panel.name}`} onClick={() => openPanelTab(panel)}>
+          <Button className="p-2 sm:px-2 sm:py-1 text-xs text-sky-400" title={`Abrir ${panel.name}`} onClick={() => openPanelTab(panel)}>
             <ExternalLink size={13} />
           </Button>
-          <Button className="px-2 py-1 text-xs" onClick={() => openEdit(cred)} title="Editar">
+          <Button className="p-2 sm:px-2 sm:py-1 text-xs" onClick={() => openEdit(cred)} title="Editar">
             <Pencil size={13} />
           </Button>
-          <Button className="px-2 py-1 text-xs text-red-400" onClick={() => onDelete(cred)} title="Eliminar">
+          <Button className="p-2 sm:px-2 sm:py-1 text-xs text-red-400" onClick={() => onDelete(cred)} title="Eliminar">
             <Trash2 size={13} />
           </Button>
         </div>
@@ -390,20 +390,25 @@ export default function Vault() {
   return (
     <div className="mx-auto max-w-5xl space-y-4 p-4">
       <div className="flex flex-wrap items-center gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Accesos</h1>
-          <p className="text-sm text-slate-400">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-semibold">Accesos</h1>
+          <p className="hidden sm:block text-sm text-slate-400">
             Todos los accesos guardados de tus paneles, cifrados en el servidor
           </p>
         </div>
-        <Button variant="primary" className="ml-auto" onClick={() => openCreate(panels[0]?.id ?? '')} disabled={panels.length === 0}>
+        <Button
+          variant="primary"
+          className="ml-auto w-full justify-center sm:w-auto"
+          onClick={() => openCreate(panels[0]?.id ?? '')}
+          disabled={panels.length === 0}
+        >
           <Plus size={16} /> Nuevo acceso
         </Button>
       </div>
 
       {/* Filtros + buscador */}
       <div className="card flex flex-wrap items-center gap-2 p-2.5">
-        <div className="relative min-w-[180px] flex-1">
+        <div className="relative min-w-[180px] flex-1 basis-48">
           <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
           <Input
             value={search}
@@ -415,7 +420,7 @@ export default function Vault() {
         <Select
           value={filterCategory}
           onChange={(e) => setFilterCategory(e.target.value)}
-          className="w-auto min-w-[150px] py-1 text-xs"
+          className="min-w-0 flex-1 basis-40 py-1 text-xs sm:flex-none sm:basis-auto"
           title="Filtrar por categoría (servicio global)"
         >
           <option value="all">Todas las categorías</option>
@@ -428,7 +433,7 @@ export default function Vault() {
         <Select
           value={filterSub}
           onChange={(e) => setFilterSub(e.target.value)}
-          className="w-auto min-w-[140px] py-1 text-xs"
+          className="min-w-0 flex-1 basis-40 py-1 text-xs sm:flex-none sm:basis-auto"
           title="Filtrar por subservicio"
         >
           <option value="all">Todos los subservicios</option>
@@ -441,7 +446,7 @@ export default function Vault() {
         <Select
           value={filterType}
           onChange={(e) => setFilterType(e.target.value as 'all' | 'own' | 'shared')}
-          className="w-auto min-w-[120px] py-1 text-xs"
+          className="min-w-0 flex-1 basis-40 py-1 text-xs sm:flex-none sm:basis-auto"
           title="Filtrar por tipo"
         >
           <option value="all">Todos</option>

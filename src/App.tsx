@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from './lib/auth'
 import { TabsProvider } from './lib/tabs'
 import { ThemeProvider, applyStoredThemeEarly } from './lib/theme'
 import Layout from './components/Layout'
+import InstallPrompt from './components/InstallPrompt'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import PanelFrame from './pages/PanelFrame'
@@ -67,6 +68,8 @@ export default function App() {
                 </Route>
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
+              {/* Banner de instalación PWA (Android/iOS) */}
+              <InstallPrompt />
             </TabsProvider>
           </HashRouter>
         </AuthProvider>

@@ -2,3 +2,8 @@ project_id = "superpaneles"
 
 [functions.panel-login]
 verify_jwt = true
+
+# El proxy autentica por JWT en /__session y por cookie firmada en el resto,
+# por lo que no puede exigir JWT en cada petición del iframe/subrecursos.
+[functions.panel-proxy]
+verify_jwt = false

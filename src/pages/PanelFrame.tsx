@@ -23,7 +23,7 @@ import clsx from 'clsx'
 import { fetchCredentials, fetchPanel, panelLogin, revealCredential } from '../lib/queries'
 import { getPanelEmbedPreference, savePanelEmbedPreference } from '../lib/categories'
 import { useAuth } from '../lib/auth'
-import { supabase } from '../lib/supabase'
+import { supabase, supabaseUrl } from '../lib/supabase'
 import { Badge, Button, Select } from '../components/ui'
 
 type LoginStatus = 'idle' | 'requesting' | 'sent' | 'done' | 'error'
@@ -163,6 +163,14 @@ export default function PanelFrame() {
   const [revealedPassword, setRevealedPassword] = useState<string | null>(null)
   const [revealing, setRevealing] = useState(false)
 
+  // --- Auto-login embebido para X-UI / 3x-ui vía panel-proxy (sesión por cookie) ---
+  const isXui = (panel?.login_type ?? 'none') === 'xui'
+  const proxyBase = `${supabaseUrl.replace(/\/+$/, '')}/functions/v1/panel-proxy/${panel?.id ?? ''}`
+  const [xuiStatus, setXuiStatus] = useState<'idle' | 'preparing' | 'logging' | 'ready' | 'error'>('idle')
+  const [xuiError, setXuiError] = useState('')
+  const [xuiAttempt, setXuiAttempt] = useState(0)
+  const [xuiFrameSrc, setXuiFrameSrc] = useState('about:blank')
+
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const tokensRef = useRef<{ access_token: string; refresh_token: string } | null>(null)
   const bridgeReadyRef = useRef(false)
@@ -257,6 +265,66 @@ export default function PanelFrame() {
     }
   }, [isOwn, selected?.id, reloadKey, sendLogin, viewMode])
 
+  // Auto-login embebido (X-UI / 3x-ui): sesión de proxy + POST /login + carga autenticada
+  useEffect(() => {
+    if (!isXui || viewMode !== 'frame' || !panel) return
+    let cancelled = false
+
+    async function run() {
+      try {
+        setXuiError('')
+        setXuiFrameSrc('about:blank')
+        setXuiStatus('preparing')
+
+        const { data: sessData } = await supabase.auth.getSession()
+        const jwt = sessData.session?.access_token
+        if (!jwt) throw new Error('Sesión del hub no disponible')
+        const prep = await fetch(`${proxyBase}/__session`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { Authorization: `Bearer ${jwt}` },
+        })
+        if (!prep.ok) throw new Error('No se pudo preparar la sesión segura del proxy')
+
+        if (selected) {
+          setXuiStatus('logging')
+          const password = await revealCredential(selected.id)
+          const body = new URLSearchParams({ username: selected.username, password }).toString()
+          const loginRes = await fetch(`${proxyBase}/login`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body,
+          })
+          let payload: { success?: boolean; msg?: string } | null = null
+          try {
+            payload = (await loginRes.json()) as { success?: boolean; msg?: string }
+          } catch {
+            /* respuesta no JSON */
+          }
+          if (!loginRes.ok || payload?.success === false) {
+            throw new Error(payload?.msg || 'El panel rechazó el acceso (revisa usuario y contraseña)')
+          }
+        }
+
+        if (cancelled) return
+        setXuiStatus('ready')
+        // Cargar el panel dentro del marco ya autenticado
+        setXuiFrameSrc(`${proxyBase}/`)
+      } catch (err) {
+        if (cancelled) return
+        setXuiStatus('error')
+        setXuiError(err instanceof Error ? err.message : 'No se pudo iniciar sesión embebida')
+      }
+    }
+
+    run()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isXui, viewMode, panel?.id, selected?.id, xuiAttempt])
+
   async function copy(what: 'user' | 'password') {
     if (!selected) return
     try {
@@ -290,6 +358,10 @@ export default function PanelFrame() {
     tokensRef.current = null
     setStatus('idle')
     setMessage('')
+    if (isXui) {
+      setXuiAttempt((a) => a + 1)
+      return
+    }
     setReloadKey((k) => k + 1)
   }
 
@@ -393,7 +465,7 @@ export default function PanelFrame() {
             onClick={openInNewTab}
             title="Abrir página web en una pestaña nueva del navegador"
           >
-            <ArrowUpRight size={13} /> Abrir {panel.name}
+            <ArrowUpRight size={13} /> Abrir<span className="hidden sm:inline">&nbsp;{panel.name}</span>
           </Button>
         </div>
       </div>
@@ -404,8 +476,8 @@ export default function PanelFrame() {
         <div className="flex-1 overflow-y-auto p-4 md:p-8">
           <div className="mx-auto max-w-2xl space-y-6">
             {/* Tarjeta principal del panel */}
-            <div className="card space-y-5 p-6 border-slate-800 bg-slate-900/90 shadow-xl">
-              <div className="flex items-start justify-between gap-4">
+            <div className="card space-y-5 p-4 sm:p-6 border-slate-800 bg-slate-900/90 shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                 <div className="flex items-center gap-3.5">
                   {panel.logo_url ? (
                     <img src={panel.logo_url} alt="" className="h-14 w-14 rounded-xl bg-slate-800 object-cover shadow" />
@@ -414,10 +486,10 @@ export default function PanelFrame() {
                       {panel.name.slice(0, 1).toUpperCase()}
                     </span>
                   )}
-                  <div>
-                    <h2 className="text-xl font-bold text-slate-100">{panel.name}</h2>
-                    <p className="text-xs text-slate-400 font-mono mt-0.5">{panel.url}</p>
-                    <div className="flex items-center gap-2 mt-2">
+                  <div className="min-w-0">
+                    <h2 className="text-xl font-bold text-slate-100 break-words">{panel.name}</h2>
+                    <p className="text-xs text-slate-400 font-mono mt-0.5 break-all">{panel.url}</p>
+                    <div className="flex flex-wrap items-center gap-2 mt-2">
                       <Badge tone="slate">
                         <Folder size={11} /> {panel.category || 'General'}
                       </Badge>
@@ -431,7 +503,7 @@ export default function PanelFrame() {
                 <Button
                   variant="primary"
                   onClick={openInNewTab}
-                  className="px-4 py-2.5 text-sm font-semibold shadow-lg shadow-sky-950/50 flex items-center gap-2"
+                  className="w-full justify-center sm:w-auto px-4 py-2.5 text-sm font-semibold shadow-lg shadow-sky-950/50 flex items-center gap-2"
                 >
                   <ArrowUpRight size={16} /> Abrir web
                 </Button>
@@ -446,7 +518,7 @@ export default function PanelFrame() {
             </div>
 
             {/* Tarjeta de Autenticación y Credenciales Cifradas */}
-            <div className="card space-y-4 p-6 border-slate-800 bg-slate-900/60">
+            <div className="card space-y-4 p-4 sm:p-6 border-slate-800 bg-slate-900/60">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <KeyRound className="text-emerald-400" size={18} />
@@ -482,8 +554,8 @@ export default function PanelFrame() {
                   )}
 
                   {/* Campo de Usuario */}
-                  <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950 p-3">
-                    <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950 p-3">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
                       <User size={16} className="text-slate-500 shrink-0" />
                       <div className="min-w-0">
                         <span className="block text-[10px] uppercase font-semibold text-slate-500">Usuario / Email</span>
@@ -503,8 +575,8 @@ export default function PanelFrame() {
                   </div>
 
                   {/* Campo de Contraseña */}
-                  <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950 p-3">
-                    <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-950 p-3">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
                       <Lock size={16} className="text-slate-500 shrink-0" />
                       <div className="min-w-0">
                         <span className="block text-[10px] uppercase font-semibold text-slate-500">Contraseña</span>
@@ -694,8 +766,8 @@ export default function PanelFrame() {
             </div>
           )}
 
-          {/* Aviso de mixed content: panel HTTP embebido en página HTTPS (paneles no Plex) */}
-          {!isPlex && isMixedContent && (
+          {/* Aviso de mixed content: panel HTTP embebido en página HTTPS (paneles no Plex, sin proxy) */}
+          {!isPlex && !isXui && isMixedContent && (
             <div className="mx-3 mt-3 rounded-xl border border-amber-700/50 bg-amber-950/20 p-4 text-xs space-y-2.5">
               <p className="flex items-center gap-1.5 font-semibold text-amber-300">
                 <AlertTriangle size={14} /> El navegador bloquea este panel dentro del hub
@@ -714,8 +786,51 @@ export default function PanelFrame() {
             </div>
           )}
 
-          {/* Iframe (solo paneles que el navegador permite embeber) */}
-          {!isPlex && !isMixedContent && (
+          {/* X-UI / 3x-UI embebido vía panel-proxy: sesión por cookie firmada del hub */}
+          {isXui && (
+            <>
+              <div className="flex flex-wrap items-center gap-2 border-b border-slate-800/60 bg-slate-950/60 px-4 py-1.5 text-xs shrink-0">
+                {xuiStatus === 'preparing' && (
+                  <span className="flex items-center gap-1.5 text-sky-300">
+                    <RefreshCw size={12} className="animate-spin" /> Preparando sesión segura…
+                  </span>
+                )}
+                {xuiStatus === 'logging' && (
+                  <span className="flex items-center gap-1.5 text-sky-300">
+                    <RefreshCw size={12} className="animate-spin" /> Iniciando sesión con las credenciales guardadas…
+                  </span>
+                )}
+                {xuiStatus === 'ready' && (
+                  <span className="flex items-center gap-1.5 font-medium text-emerald-400">
+                    <ShieldCheck size={12} /> Sesión embebida activa en {panel.name}
+                  </span>
+                )}
+                {xuiStatus === 'error' && <span className="text-red-400">Error: {xuiError}</span>}
+                {selected && (
+                  <span className="max-w-[24ch] truncate text-[11px] text-slate-500" title={selected.username}>
+                    {selected.username}
+                  </span>
+                )}
+                <Button
+                  className="ml-auto px-2 py-0.5 text-[11px]"
+                  onClick={() => setXuiAttempt((a) => a + 1)}
+                  title="Volver a preparar la sesión e iniciar sesión embebida"
+                >
+                  <RefreshCw size={11} /> Reintentar
+                </Button>
+              </div>
+
+              <iframe
+                src={xuiFrameSrc}
+                title={panel.name}
+                className="min-h-0 flex-1 border-0 bg-white"
+                allow="clipboard-write"
+              />
+            </>
+          )}
+
+          {/* Iframe directo (paneles que el navegador permite embeber sin proxy) */}
+          {!isPlex && !isXui && !isMixedContent && (
             <iframe
               key={reloadKey}
               ref={iframeRef}

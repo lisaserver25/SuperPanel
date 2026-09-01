@@ -3,8 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Móvil: viewport-fit=cover habilita las safe-areas (notch iOS), maximum-scale evita el zoom
+         automático al enfocar inputs en iOS (los inputs ya se muestran a 16px en pantallas pequeñas) -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no"
+    />
     <meta name="robots" content="noindex" />
+    <meta name="description" content="Acceso único a todos tus paneles: categorías, pestañas, credenciales cifradas y paneles compartidos." />
+
+    <!-- PWA / Instalable en Android (Chrome) e iOS (Añadir a inicio) -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#020617" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="SuperPaneles" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+
     <title>SuperPaneles</title>
   </head>
   <body>

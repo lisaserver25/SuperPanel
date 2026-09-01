@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import clsx from 'clsx'
 import { KeyRound, Lock, Share2, Trash2, UserPlus, Users } from 'lucide-react'
 import { Badge, Button, Field, Input, Modal, Select } from './ui'
 import {
@@ -12,6 +13,7 @@ import {
   savePanel,
   sharePanel,
   updatePanelShareCategory,
+  updatePanelShareCredentialMode,
   upsertCredential,
 } from '../lib/queries'
 import {
@@ -36,6 +38,7 @@ interface FormState {
   sort_order: string
   notes: string
   embed_mode: 'frame' | 'launcher'
+  login_type: 'none' | 'xui'
   // Datos de autenticación integrados
   auth_username: string
   auth_password: string
@@ -52,6 +55,7 @@ const emptyForm: FormState = {
   sort_order: '0',
   notes: '',
   embed_mode: 'frame',
+  login_type: 'none',
   auth_username: '',
   auth_password: '',
   existing_cred_id: undefined,
@@ -71,6 +75,7 @@ function fromPanel(p: Panel, userId?: string, existingCred?: PanelCredential | n
     sort_order: String(p.sort_order),
     notes: p.notes ?? '',
     embed_mode: getPanelEmbedPreference(userId, p.id, p.kind),
+    login_type: p.login_type === 'xui' ? 'xui' : 'none',
     auth_username: existingCred?.username ?? '',
     auth_password: '',
     existing_cred_id: existingCred?.id,
@@ -98,6 +103,7 @@ export default function PanelFormModal({
 
   // Gestión de colaboradores y usuarios históricos
   const [shareEmail, setShareEmail] = useState('')
+  const [shareMode, setShareMode] = useState<'common' | 'private'>('common')
   const [selectedCollabs, setSelectedCollabs] = useState<string[]>([])
   const [sharesToDelete, setSharesToDelete] = useState<string[]>([])
 
@@ -199,6 +205,7 @@ export default function PanelFormModal({
       }
       setError('')
       setShareEmail('')
+      setShareMode('common')
       setSelectedCollabs([])
       setSharesToDelete([])
     }
@@ -243,6 +250,17 @@ export default function PanelFormModal({
     setSharesToDelete((prev) => [...prev, shareId])
   }
 
+  async function handleShareModeChange(shareId: string, mode: 'common' | 'private') {
+    setError('')
+    try {
+      await updatePanelShareCredentialMode(shareId, mode)
+      await qc.invalidateQueries({ queryKey: ['panel-shares', initial?.id] })
+      await qc.invalidateQueries({ queryKey: ['panels'] })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo cambiar el tipo de acceso')
+    }
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     try {
@@ -283,6 +301,7 @@ export default function PanelFormModal({
           sort_order: Number.parseInt(form.sort_order || '0', 10) || 0,
           supabase_url: null,
           supabase_anon_key: null,
+          login_type: form.login_type,
         })
       }
 
@@ -311,7 +330,7 @@ export default function PanelFormModal({
 
       // 4. Procesar nuevas comparticiones seleccionadas
       for (const email of selectedCollabs) {
-        await sharePanel(panelId, email).catch(() => {})
+        await sharePanel(panelId, email, shareMode).catch(() => {})
       }
 
       onClose()
@@ -456,10 +475,28 @@ export default function PanelFormModal({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               <KeyRound size={14} className="text-emerald-400" />
-              <span className="text-xs font-semibold text-slate-200">Acceso & Credenciales cifradas</span>
+              <span className="text-xs font-semibold text-slate-200">Acceso &amp; Credenciales cifradas</span>
             </div>
             <span className="text-[10px] text-emerald-400/80">Cifrado seguro</span>
           </div>
+
+          {/* Auto-login embebido (XUI / 3x-ui vía proxy de sesión) */}
+          <Field label="Inicio de sesión embebido (auto-login dentro del marco):">
+            <Select
+              value={form.login_type}
+              onChange={(e) => setForm((f) => ({ ...f, login_type: e.target.value as 'none' | 'xui' }))}
+              className="py-1 text-xs"
+            >
+              <option value="none">Manual: solo copiar usuario y contraseña</option>
+              <option value="xui">X-UI / 3x-UI: iniciar sesión automáticamente (embebido)</option>
+            </Select>
+            {form.login_type === 'xui' && (
+              <span className="block pt-0.5 text-[10px] text-slate-500">
+                Al abrir el panel embebido se iniciará sesión con las credenciales guardadas aquí (vía proxy seguro del
+                hub). Requiere usuario y contraseña.
+              </span>
+            )}
+          </Field>
 
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <Field label="Usuario (email o login)">
@@ -518,6 +555,39 @@ export default function PanelFormModal({
             {activeExistingShares.length > 0 && (
               <span className="text-[10px] text-slate-400">{activeExistingShares.length} compartido(s)</span>
             )}
+          </div>
+
+          {/* Modo de credenciales de la compartición */}
+          <div className="space-y-1">
+            <span className="text-[11px] font-medium text-slate-300">Tipo de acceso para los invitados:</span>
+            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setShareMode('common')}
+                className={clsx(
+                  'rounded-lg border px-2.5 py-1.5 text-left text-[11px] transition-colors',
+                  shareMode === 'common'
+                    ? 'border-sky-500 bg-sky-500/15 text-sky-200'
+                    : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700'
+                )}
+              >
+                <span className="block font-semibold">Acceso común</span>
+                <span className="block text-[10px] leading-snug">Todos entran con TUS credenciales guardadas de este panel</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShareMode('private')}
+                className={clsx(
+                  'rounded-lg border px-2.5 py-1.5 text-left text-[11px] transition-colors',
+                  shareMode === 'private'
+                    ? 'border-violet-500 bg-violet-500/15 text-violet-200'
+                    : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700'
+                )}
+              >
+                <span className="block font-semibold">Acceso privado</span>
+                <span className="block text-[10px] leading-snug">Cada invitado guarda y usa solo sus propias credenciales</span>
+              </button>
+            </div>
           </div>
 
           {/* Desplegable de usuarios frecuentes / históricos */}
@@ -586,7 +656,7 @@ export default function PanelFormModal({
             <div className="space-y-1 pt-1.5 border-t border-slate-800/80">
               <ul className="divide-y divide-slate-800/60 rounded border border-slate-800 bg-slate-950/40">
                 {activeExistingShares.map((s) => (
-                  <li key={s.id} className="flex items-center justify-between px-2.5 py-1 text-[11px]">
+                  <li key={s.id} className="flex items-center justify-between gap-1 px-2.5 py-1 text-[11px]">
                     <div className="flex items-center gap-1.5 min-w-0 pr-2">
                       <Users size={12} className="text-slate-400 shrink-0" />
                       <span className="font-mono text-slate-200 truncate">{s.shared_with_email}</span>
@@ -594,14 +664,25 @@ export default function PanelFormModal({
                         {s.status === 'accepted' ? 'Aceptada' : 'Pendiente'}
                       </Badge>
                     </div>
-                    <Button
-                      type="button"
-                      className="px-1.5 py-0.5 text-[10px] text-red-400 hover:text-red-300 shrink-0"
-                      title="Revocar acceso"
-                      onClick={() => markShareForRemoval(s.id)}
-                    >
-                      <Trash2 size={11} /> Revocar
-                    </Button>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Select
+                        value={s.credential_mode || 'common'}
+                        onChange={(e) => handleShareModeChange(s.id, e.target.value as 'common' | 'private')}
+                        className="h-5 w-auto min-w-0 px-1 py-0 text-[10px]"
+                        title="Tipo de acceso: común usa tus credenciales, privado solo las suyas"
+                      >
+                        <option value="common">Común</option>
+                        <option value="private">Privado</option>
+                      </Select>
+                      <Button
+                        type="button"
+                        className="px-1.5 py-0.5 text-[10px] text-red-400 hover:text-red-300 shrink-0"
+                        title="Revocar acceso"
+                        onClick={() => markShareForRemoval(s.id)}
+                      >
+                        <Trash2 size={11} /> Revocar
+                      </Button>
+                    </div>
                   </li>
                 ))}
               </ul>

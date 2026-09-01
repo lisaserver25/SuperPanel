@@ -33,8 +33,11 @@ export default function Login() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4">
-      <form onSubmit={onSubmit} className="card w-full max-w-sm space-y-4 p-6">
+    <div className="flex min-h-screen items-center justify-center p-4 pt-safe pb-safe">
+      <form onSubmit={onSubmit} className="card w-full max-w-sm space-y-4 p-5 sm:p-6">
+        <div className="mb-1 flex justify-center">
+          <span className="grid h-12 w-12 place-items-center rounded-2xl bg-sky-500/15 text-lg font-bold text-sky-300">S</span>
+        </div>
         <h1 className="text-center text-xl font-semibold">{siteName}</h1>
         <p className="text-center text-sm text-slate-400">Acceso único a todos tus paneles</p>
         <Field label="Email">

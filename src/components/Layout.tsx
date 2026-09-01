@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { useTabs } from '../lib/tabs'
+import { useIsMobile } from '../lib/useIsMobile'
 import {
   fetchBrandingSettings,
   fetchCredentials,
@@ -30,7 +31,7 @@ import {
 } from '../lib/queries'
 import { ACCENTS, THEME_MODES, useTheme } from '../lib/theme'
 import { supabase } from '../lib/supabase'
-import { Badge } from './ui'
+import { Badge, BottomSheet } from './ui'
 import type { MenuStyle, Panel } from '../lib/types'
 
 const STYLE_OPTIONS: { value: MenuStyle; label: string; icon: typeof PanelTop; hint: string }[] = [
@@ -95,7 +96,7 @@ function AppearanceMenu({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1.5 w-64 rounded-xl border border-slate-800 bg-slate-900 p-2 shadow-2xl">
+        <div className="absolute right-0 top-full z-50 mt-1.5 w-64 max-w-[calc(100vw-1.5rem)] rounded-xl border border-slate-800 bg-slate-900 p-2 shadow-2xl">
           {/* Estilo del menú (se previsualiza y se confirma en una barra flotante) */}
           <p className="px-1.5 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
             Estilo del menú
@@ -173,20 +174,20 @@ function AppearanceMenu({
 function PreviewBar({ style, onAccept, onCancel }: { style: MenuStyle; onAccept: () => void; onCancel: () => void }) {
   const label = STYLE_OPTIONS.find((s) => s.value === style)?.label ?? style
   return (
-    <div className="fixed left-1/2 top-3 z-[60] -translate-x-1/2 animate-in fade-in-50 zoom-in-95">
-      <div className="flex items-center gap-3 rounded-full border border-sky-500/50 bg-slate-900/95 py-1.5 pl-4 pr-1.5 text-xs shadow-2xl backdrop-blur">
+    <div className="fixed left-1/2 top-[calc(0.75rem+env(safe-area-inset-top))] z-[60] -translate-x-1/2 animate-fade-in">
+      <div className="flex items-center gap-2 sm:gap-3 rounded-2xl sm:rounded-full border border-sky-500/50 bg-slate-900/95 py-1.5 pl-3 sm:pl-4 pr-1.5 text-xs shadow-2xl backdrop-blur">
         <span className="text-slate-200">
           Vista previa: <strong className="text-sky-300">{label}</strong>
         </span>
         <button
           onClick={onAccept}
-          className="flex items-center gap-1 rounded-full bg-sky-500 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-sky-400"
+          className="flex items-center gap-1 rounded-full bg-sky-500 px-2.5 py-1.5 sm:py-1 text-[11px] font-semibold text-white hover:bg-sky-400"
         >
           <Check size={12} /> Aceptar
         </button>
         <button
           onClick={onCancel}
-          className="flex items-center gap-1 rounded-full border border-slate-600 px-2.5 py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-800"
+          className="flex items-center gap-1 rounded-full border border-slate-600 px-2.5 py-1.5 sm:py-1 text-[11px] font-medium text-slate-300 hover:bg-slate-800"
         >
           <X size={12} /> Cancelar
         </button>
@@ -304,7 +305,7 @@ function TabStrip() {
             key={tab.id}
             onClick={() => switchTab(tab.id)}
             className={clsx(
-              'group flex max-w-[200px] h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-t border-b-2 px-2.5 py-1 text-xs transition-all select-none',
+              'group flex h-8 max-w-[150px] sm:h-7 sm:max-w-[200px] shrink-0 cursor-pointer items-center gap-1.5 rounded-t border-b-2 px-2.5 py-1 text-xs transition-all select-none',
               isActive
                 ? 'border-sky-500 bg-slate-800/90 text-white font-medium shadow-xs'
                 : 'border-transparent bg-slate-900/50 text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
@@ -340,10 +341,10 @@ function TabStrip() {
                   e.stopPropagation()
                   closeTab(tab.id)
                 }}
-                className="ml-0.5 rounded p-0.5 text-slate-500 hover:bg-slate-700 hover:text-slate-200 transition-colors"
+                className="ml-0.5 -mr-1 rounded p-1.5 sm:m-0 sm:p-0.5 text-slate-500 hover:bg-slate-700 hover:text-slate-200 transition-colors"
                 title="Cerrar pestaña"
               >
-                <X size={11} />
+                <X size={12} />
               </button>
             )}
           </div>
@@ -379,10 +380,10 @@ function FloatingDock({
   }, [panelsOpen])
 
   return (
-    <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2" ref={dockRef}>
+    <div className="fixed bottom-safe-dock left-1/2 z-50 -translate-x-1/2" ref={dockRef}>
       {/* Popover de paneles (se abre hacia arriba) */}
       {panelsOpen && (
-        <div className="absolute bottom-full left-1/2 mb-3 w-[min(24rem,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl border border-slate-700/80 bg-slate-900/95 shadow-2xl backdrop-blur-xl animate-in fade-in-50 zoom-in-95">
+        <div className="absolute bottom-full left-1/2 mb-3 w-[min(24rem,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl border border-slate-700/80 bg-slate-900/95 shadow-2xl backdrop-blur-xl animate-fade-in">
           <PanelsMenuContent panels={panels} credPanelIds={credPanelIds} onPick={(p) => { setPanelsOpen(false); onPickPanel(p) }} />
         </div>
       )}
@@ -451,12 +452,154 @@ function FloatingDock({
   )
 }
 
+// Elemento de la barra de navegación inferior móvil (estilo app nativa Android/iOS)
+function MobileNavItem({
+  to,
+  label,
+  icon: Icon,
+  end,
+}: {
+  to: string
+  label: string
+  icon: typeof LayoutGrid
+  end?: boolean
+}) {
+  return (
+    <NavLink
+      to={to}
+      end={end}
+      className={({ isActive }) =>
+        clsx(
+          'relative flex flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-all active:scale-95',
+          isActive ? 'text-sky-300' : 'text-slate-400 active:text-slate-200'
+        )
+      }
+    >
+      {({ isActive }) => (
+        <>
+          {isActive && <span className="absolute top-0 h-0.5 w-8 rounded-full bg-sky-400" />}
+          <Icon size={20} className={isActive ? 'text-sky-300' : 'text-slate-400'} />
+          <span className="max-w-full truncate px-0.5">{label}</span>
+        </>
+      )}
+    </NavLink>
+  )
+}
+
+/**
+ * SHELL MÓVIL (Android / iOS / pantallas < 768px):
+ * cabecera compacta con pestañas + barra de navegación inferior fija con
+ * áreas seguras + lanzador de paneles como hoja inferior deslizante.
+ * Sustituye a los tres estilos de menú de escritorio en pantallas pequeñas.
+ */
+function MobileShell({
+  previewBar,
+  brand,
+  appearance,
+  navItems,
+  panels,
+  credPanelIds,
+  onPickPanel,
+  onLogout,
+}: {
+  previewBar: ReactNode
+  brand: ReactNode
+  appearance: ReactNode
+  navItems: { to: string; label: string; icon: typeof LayoutGrid; end?: boolean }[]
+  panels: Panel[]
+  credPanelIds: Set<string>
+  onPickPanel: (p: Panel) => void
+  onLogout: () => void
+}) {
+  const [panelsOpen, setPanelsOpen] = useState(false)
+  const left = navItems.slice(0, 2)
+  const right = navItems.slice(2)
+
+  return (
+    <div className="flex h-app flex-col overflow-hidden bg-slate-950 text-slate-100">
+      {previewBar}
+
+      {/* Cabecera compacta con pestañas abiertas */}
+      <header className="z-40 shrink-0 border-b border-slate-800 bg-slate-900/95 pt-safe backdrop-blur">
+        <div className="flex items-center gap-2 py-2 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))]">
+          {brand}
+          <div className="ml-auto flex items-center gap-1.5">{appearance}</div>
+        </div>
+        <div className="border-t border-slate-800/80 bg-slate-950/60 px-2 pb-1 pt-0.5">
+          <TabStrip />
+        </div>
+      </header>
+
+      {/* Contenido con espacio reservado para la barra inferior */}
+      <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="pb-nav-safe">
+          <Outlet />
+        </div>
+      </main>
+
+      {/* Barra de navegación inferior fija (safe-area iPhone incluida) */}
+      <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-800 bg-slate-900/95 pb-safe backdrop-blur-xl">
+        <div className="flex items-stretch pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))]">
+          {left.map(({ to, label, icon, end }) => (
+            <MobileNavItem key={to} to={to} label={to === '/' ? 'Inicio' : label} icon={icon} end={end} />
+          ))}
+
+          {/* Botón central: lanzador de paneles (hoja inferior) */}
+          <button
+            onClick={() => setPanelsOpen((p) => !p)}
+            className="relative flex flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium text-slate-200 transition-all active:scale-95"
+            title="Ver todos los paneles"
+          >
+            <span className="relative">
+              <LayoutGrid size={20} className={panelsOpen ? 'text-sky-300' : 'text-sky-400'} />
+              <span className="absolute -right-2 -top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-sky-500 px-1 text-[9px] font-bold text-white">
+                {panels.length}
+              </span>
+            </span>
+            Paneles
+          </button>
+
+          {right.map(({ to, label, icon, end }) => (
+            <MobileNavItem key={to} to={to} label={label} icon={icon} end={end} />
+          ))}
+
+          <button
+            onClick={onLogout}
+            className="flex flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium text-slate-400 transition-all active:scale-95 active:text-red-300"
+            title="Cerrar sesión"
+          >
+            <LogOut size={20} />
+            Salir
+          </button>
+        </div>
+      </nav>
+
+      {/* Lanzador de paneles como hoja inferior */}
+      <BottomSheet
+        open={panelsOpen}
+        onClose={() => setPanelsOpen(false)}
+        title={`Paneles (${panels.length})`}
+      >
+        <PanelsMenuContent
+          panels={panels}
+          credPanelIds={credPanelIds}
+          onPick={(p) => {
+            setPanelsOpen(false)
+            onPickPanel(p)
+          }}
+        />
+      </BottomSheet>
+    </div>
+  )
+}
+
 export default function Layout() {
   const { user, profile, isSuperadmin } = useAuth()
   const { openPanelTab } = useTabs()
   const navigate = useNavigate()
   const qc = useQueryClient()
   const { setMode, setAccent } = useTheme()
+  const isMobile = useIsMobile()
 
   const settingsQuery = useQuery({ queryKey: ['super-settings'], queryFn: fetchBrandingSettings })
   const panelsQuery = useQuery({ queryKey: ['panels'], queryFn: fetchPanels })
@@ -533,7 +676,7 @@ export default function Layout() {
   const brand = (
     <NavLink to="/" className="flex items-center gap-1.5 font-semibold shrink-0 text-sm">
       <span className="grid h-6 w-6 place-items-center rounded bg-sky-500/20 text-xs text-sky-300 font-bold">S</span>
-      <span className="hidden sm:inline text-xs font-semibold tracking-tight">
+      <span className="hidden min-[420px]:inline text-xs font-semibold tracking-tight">
         {settingsQuery.data?.site_name ?? 'SuperPanel'}
       </span>
     </NavLink>
@@ -551,10 +694,28 @@ export default function Layout() {
 
   const appearance = <AppearanceMenu currentStyle={menuStyle} onPreviewStyle={startPreview} />
 
+  // ------------------------------------------------------------- MÓVIL (Android/iOS)
+  // En pantallas pequeñas se usa un shell dedicado con barra inferior fija,
+  // independiente del estilo de menú elegido para escritorio.
+  if (isMobile) {
+    return (
+      <MobileShell
+        previewBar={previewBar}
+        brand={brand}
+        appearance={appearance}
+        navItems={navItems}
+        panels={panels}
+        credPanelIds={credPanelIds}
+        onPickPanel={openPanelTab}
+        onLogout={handleLogout}
+      />
+    )
+  }
+
   // ---------------------------------------------------------------- DOCK (iOS)
   if (menuStyle === 'dock') {
     return (
-      <div className="flex h-screen flex-col overflow-hidden bg-slate-950 text-slate-100">
+      <div className="flex h-app flex-col overflow-hidden bg-slate-950 text-slate-100">
         {previewBar}
         <header className="shrink-0 border-b border-slate-800 bg-slate-900/95 backdrop-blur z-40">
           <div className="mx-auto flex max-w-7xl items-center gap-3 px-3 py-1.5">
@@ -585,7 +746,7 @@ export default function Layout() {
   // ------------------------------------------------------------------- LATERAL
   if (menuStyle === 'side') {
     return (
-      <div className="flex h-screen overflow-hidden bg-slate-950 text-slate-100">
+      <div className="flex h-app overflow-hidden bg-slate-950 text-slate-100">
         {previewBar}
         <aside className="flex w-52 shrink-0 flex-col border-r border-slate-800 bg-slate-900/95">
           <div className="px-3 py-2.5">{brand}</div>
@@ -636,7 +797,7 @@ export default function Layout() {
 
   // -------------------------------------------------------------- BARRA SUPERIOR
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-slate-950 text-slate-100">
+    <div className="flex h-app flex-col overflow-hidden bg-slate-950 text-slate-100">
       {previewBar}
       <header className="shrink-0 border-b border-slate-800 bg-slate-900/95 backdrop-blur z-40">
         <div className="mx-auto flex max-w-7xl items-center gap-2.5 px-3 py-1.5">
@@ -721,7 +882,7 @@ function TopPanelsDropdown({
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-1.5 w-80 sm:w-96 rounded-xl border border-slate-800 bg-slate-900 shadow-2xl z-50 animate-in fade-in-50 zoom-in-95">
+        <div className="absolute left-0 top-full mt-1.5 w-80 sm:w-96 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-800 bg-slate-900 shadow-2xl z-50 animate-fade-in">
           <PanelsMenuContent panels={panels} credPanelIds={credPanelIds} onPick={(p) => { setOpen(false); onPickPanel(p) }} />
         </div>
       )}

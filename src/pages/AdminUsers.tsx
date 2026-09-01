@@ -86,13 +86,13 @@ export default function AdminUsers() {
   return (
     <div className="mx-auto max-w-4xl space-y-5 p-4">
       <div className="flex flex-wrap items-center gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Usuarios</h1>
-          <p className="text-sm text-slate-400">Alta y gestión de accesos al SuperPanel (solo superadmin)</p>
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-semibold">Usuarios</h1>
+          <p className="hidden sm:block text-sm text-slate-400">Alta y gestión de accesos al SuperPanel (solo superadmin)</p>
         </div>
         <Button
           variant="primary"
-          className="ml-auto"
+          className="ml-auto w-full justify-center sm:w-auto"
           onClick={() => {
             setError('')
             setCreate({ open: true, fullName: '', email: '', password: '', role: 'user' })
@@ -109,7 +109,7 @@ export default function AdminUsers() {
       ) : users.length === 0 ? (
         <EmptyState>No hay usuarios todavía.</EmptyState>
       ) : (
-        <div className="card overflow-hidden">
+        <div className="card overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-800 text-left text-xs uppercase tracking-wide text-slate-500">

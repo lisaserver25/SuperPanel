@@ -211,11 +211,14 @@ export async function fetchPanels(): Promise<Panel[]> {
   }
 
   // 2. Obtener shares aceptados del usuario actual para enriquecer categorías personalizadas
-  const sharesMap = new Map<string, { shareId: string; customCategory: string; sharedBy: string }>()
+  const sharesMap = new Map<
+    string,
+    { shareId: string; customCategory: string; sharedBy: string; credentialMode: 'common' | 'private' }
+  >()
   try {
     const { data: myShares, error: sharesError } = await supabase
       .from('super_panel_shares')
-      .select('id, panel_id, shared_by, custom_category, status')
+      .select('id, panel_id, shared_by, custom_category, status, credential_mode')
       .eq('status', 'accepted')
 
     if (!sharesError && myShares) {
@@ -225,6 +228,7 @@ export async function fetchPanels(): Promise<Panel[]> {
             shareId: s.id,
             customCategory: s.custom_category || 'General',
             sharedBy: s.shared_by,
+            credentialMode: (s.credential_mode as 'common' | 'private') || 'common',
           })
         }
       }
@@ -295,6 +299,7 @@ export async function fetchPanels(): Promise<Panel[]> {
       category: resolvedCategory,
       is_shared: isShared,
       share_id: shareInfo?.shareId,
+      share_credential_mode: isShared ? shareInfo?.credentialMode : undefined,
       shared_by_name: isShared ? profileMap.get(p.owner_id) ?? undefined : undefined,
       shared_with_users: !isShared ? outgoingSharesMap.get(p.id) : undefined,
     }
@@ -315,7 +320,7 @@ export async function fetchPanel(id: string): Promise<Panel | null> {
     try {
       const { data: share } = await supabase
         .from('super_panel_shares')
-        .select('id, custom_category, shared_by')
+        .select('id, custom_category, shared_by, credential_mode')
         .eq('panel_id', id)
         .eq('status', 'accepted')
         .maybeSingle()
@@ -335,6 +340,7 @@ export async function fetchPanel(id: string): Promise<Panel | null> {
         category: share?.custom_category || p.category || 'General',
         is_shared: true,
         share_id: share?.id,
+        share_credential_mode: (share?.credential_mode as 'common' | 'private' | undefined) ?? 'common',
         shared_by_name: ownerName,
       }
     } catch {
@@ -464,6 +470,10 @@ export async function savePanel(
       subcategory: targetSubcategory,
       updated_at: new Date().toISOString(),
     }
+    // Solo tocar login_type si el cliente lo envió (evita pisarlo en guardados parciales)
+    if (panel.login_type !== undefined) {
+      updatePayload.login_type = panel.login_type === 'xui' ? 'xui' : null
+    }
 
     const { error: updateErr } = await supabase
       .from('super_panels')
@@ -516,6 +526,9 @@ export async function savePanel(
       supabase_anon_key: panel.kind === 'own' ? panel.supabase_anon_key || null : null,
       category: targetCategory,
       subcategory: targetSubcategory,
+    }
+    if (panel.login_type !== undefined) {
+      insertPayload.login_type = panel.login_type === 'xui' ? 'xui' : null
     }
 
     const { data: inserted, error: insertErr } = await supabase
@@ -830,7 +843,11 @@ export async function fetchPanelShares(panelId: string): Promise<PanelShare[]> {
   }
 }
 
-export async function sharePanel(panelId: string, email: string): Promise<void> {
+export async function sharePanel(
+  panelId: string,
+  email: string,
+  credentialMode: 'common' | 'private' = 'common'
+): Promise<void> {
   const {
     data: { user },
   } = await supabase.auth.getUser()
@@ -846,6 +863,7 @@ export async function sharePanel(panelId: string, email: string): Promise<void> 
     shared_with_email: normEmail,
     status: 'pending',
     custom_category: 'General',
+    credential_mode: credentialMode,
   })
   if (error) {
     if (error.code === '23505') {
@@ -856,6 +874,18 @@ export async function sharePanel(panelId: string, email: string): Promise<void> 
 
   // Guardar en el historial de usuarios compartidos
   saveSharedUserToHistory(normEmail)
+}
+
+/** Cambia el modo de credenciales de una compartición (solo el propietario del panel). */
+export async function updatePanelShareCredentialMode(
+  shareId: string,
+  credentialMode: 'common' | 'private'
+): Promise<void> {
+  const { error } = await supabase
+    .from('super_panel_shares')
+    .update({ credential_mode: credentialMode, updated_at: new Date().toISOString() })
+    .eq('id', shareId)
+  if (error) throw error
 }
 
 export async function removePanelShare(shareId: string): Promise<void> {

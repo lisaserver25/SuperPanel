@@ -1,4 +1,8 @@
 export type PanelKind = 'own' | 'third'
+/** Estrategia de auto-login embebido del panel (proxy de sesión) */
+export type PanelLoginType = 'none' | 'xui'
+/** Modo de credenciales de una compartición */
+export type CredentialMode = 'common' | 'private'
 export type MenuStyle = 'top' | 'side' | 'dock'
 export type ThemeMode = 'dark' | 'light' | 'system'
 export type AccentColor = 'sky' | 'violet' | 'emerald' | 'amber' | 'rose' | 'cyan'
@@ -40,6 +44,7 @@ export interface Panel {
   subcategory?: string | null
   supabase_url: string | null
   supabase_anon_key: string | null
+  login_type?: PanelLoginType | null
   created_at: string
   updated_at: string
   // Propiedades opcionales calculadas en frontend / joins
@@ -49,6 +54,8 @@ export interface Panel {
   share_id?: string
   custom_category?: string
   owner_email?: string
+  /** Modo de credenciales de MI compartición (invitado): común = usa las del propietario */
+  share_credential_mode?: CredentialMode
   // Usuarios con los que el propietario ha compartido este panel
   shared_with_users?: { email: string; status: 'pending' | 'accepted' | 'rejected' }[]
 }
@@ -99,6 +106,7 @@ export interface PanelShare {
   shared_with_email: string
   shared_with_id: string | null
   custom_category: string
+  credential_mode: CredentialMode
   status: PanelShareStatus
   created_at: string
   updated_at: string
