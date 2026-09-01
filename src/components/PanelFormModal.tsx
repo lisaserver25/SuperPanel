@@ -323,14 +323,14 @@ export default function PanelFormModal({
         })
       }
 
-      // 3. Procesar eliminaciones de compartición
+      // 3. Procesar eliminaciones de compartición (los errores abortan el guardado y se muestran)
       for (const shareId of sharesToDelete) {
-        await removePanelShare(shareId).catch(() => {})
+        await removePanelShare(shareId)
       }
 
-      // 4. Procesar nuevas comparticiones seleccionadas
+      // 4. Procesar nuevas comparticiones seleccionadas (ídem: sin tragarse los errores)
       for (const email of selectedCollabs) {
-        await sharePanel(panelId, email, shareMode).catch(() => {})
+        await sharePanel(panelId, email, shareMode)
       }
 
       onClose()

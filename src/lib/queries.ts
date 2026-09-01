@@ -483,7 +483,7 @@ export async function savePanel(
 
     if (updateErr) {
       delete updatePayload.category
-      delete updatePayload.subcategory
+      delete updatePayload.login_type
       const { error: retryErr } = await supabase
         .from('super_panels')
         .update(updatePayload)
@@ -539,7 +539,7 @@ export async function savePanel(
 
     if (insertErr) {
       delete insertPayload.category
-      delete insertPayload.subcategory
+      delete insertPayload.login_type
       const { data: retryData, error: retryErr } = await supabase
         .from('super_panels')
         .insert(insertPayload)
@@ -829,6 +829,12 @@ export async function fetchHistoricalSharedUsers(): Promise<{ email: string; nam
 
 // --- Compartición de Paneles ---
 
+/** Detecta errores de columna inexistente (BD sin migrar aún) */
+function isUnknownColumnError(err: unknown, column: string): boolean {
+  const e = err as { code?: string; message?: string }
+  return e?.code === 'PGRST204' || (e?.message ?? '').toLowerCase().includes(column.toLowerCase())
+}
+
 export async function fetchPanelShares(panelId: string): Promise<PanelShare[]> {
   try {
     const { data, error } = await supabase
@@ -857,14 +863,23 @@ export async function sharePanel(
     throw new Error('No puedes compartir un panel contigo mismo')
   }
 
-  const { error } = await supabase.from('super_panel_shares').insert({
+  const insertPayload: Record<string, unknown> = {
     panel_id: panelId,
     shared_by: user.id,
     shared_with_email: normEmail,
     status: 'pending',
     custom_category: 'General',
     credential_mode: credentialMode,
-  })
+  }
+
+  let { error } = await supabase.from('super_panel_shares').insert(insertPayload)
+
+  // BD sin migrar todavía: crear la compartición sin credential_mode (queda 'common' al aplicar la migración)
+  if (error && isUnknownColumnError(error, 'credential_mode')) {
+    delete insertPayload.credential_mode
+    ;({ error } = await supabase.from('super_panel_shares').insert(insertPayload))
+  }
+
   if (error) {
     if (error.code === '23505') {
       throw new Error('Este panel ya está compartido con este usuario')
@@ -881,10 +896,22 @@ export async function updatePanelShareCredentialMode(
   shareId: string,
   credentialMode: 'common' | 'private'
 ): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) throw new Error('Se requiere sesión')
+
   const { error } = await supabase
     .from('super_panel_shares')
     .update({ credential_mode: credentialMode, updated_at: new Date().toISOString() })
     .eq('id', shareId)
+    .eq('shared_by', user.id)
+
+  if (error && isUnknownColumnError(error, 'credential_mode')) {
+    throw new Error(
+      'La base de datos aún no tiene el tipo de acceso: ejecuta «npm run db:push» para aplicar la migración'
+    )
+  }
   if (error) throw error
 }
 
