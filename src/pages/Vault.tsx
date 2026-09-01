@@ -34,6 +34,7 @@ import {
   saveUserCustomSubservice,
 } from '../lib/categories'
 import { useAuth } from '../lib/auth'
+import { useMySubscription } from '../lib/billing'
 import { useTabs } from '../lib/tabs'
 import { Badge, Button, EmptyState, Field, Input, Modal, Select } from '../components/ui'
 import type { Panel, PanelCredential } from '../lib/types'
@@ -65,8 +66,13 @@ export default function Vault() {
   const qc = useQueryClient()
   const { openPanelTab } = useTabs()
   const { user } = useAuth()
+  const subQuery = useMySubscription()
   const panelsQuery = useQuery({ queryKey: ['panels'], queryFn: fetchPanels })
   const credsQuery = useQuery({ queryKey: ['credentials'], queryFn: fetchCredentials })
+
+  // La BD bloquea guardar credenciales con suscripción vencida o plan sin bóveda
+  const vaultLocked =
+    subQuery.data?.read_only === true || (subQuery.data?.has_subscription === true && subQuery.data?.plan?.can_use_vault === false)
 
   const panels: Panel[] = panelsQuery.data ?? []
   const credentials: PanelCredential[] = credsQuery.data ?? []
@@ -400,7 +406,8 @@ export default function Vault() {
           variant="primary"
           className="ml-auto w-full justify-center sm:w-auto"
           onClick={() => openCreate(panels[0]?.id ?? '')}
-          disabled={panels.length === 0}
+          disabled={panels.length === 0 || vaultLocked}
+          title={vaultLocked ? 'Tu plan no permite guardar credenciales o tu suscripción está caducada' : undefined}
         >
           <Plus size={16} /> Nuevo acceso
         </Button>

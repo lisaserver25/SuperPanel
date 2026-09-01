@@ -1,28 +1,84 @@
 import { useState, type FormEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { KeyRound, Plus, ShieldCheck, Trash2, UserRound } from 'lucide-react'
+import { Gem, KeyRound, Plus, ShieldCheck, Trash2, UserRound } from 'lucide-react'
 import { adminCreateUser, adminDeleteUser, adminListUsers, adminSetPassword, adminUpdateUser } from '../lib/queries'
+import {
+  adminListSubscriptions,
+  adminSetSubscription,
+  fetchPlans,
+  SUBSCRIPTION_STATUSES,
+  SUBSCRIPTION_STATUS_LABELS,
+} from '../lib/billing'
 import { useAuth } from '../lib/auth'
 import { Badge, Button, EmptyState, Field, Input, Modal, Select } from '../components/ui'
-import type { AdminUser } from '../lib/types'
+import type { AdminUser, AdminSubscriptionRow, SubscriptionStatus } from '../lib/types'
 
 type CreateState = { open: boolean; fullName: string; email: string; password: string; role: 'user' | 'superadmin' }
 type PasswordState = { user: AdminUser; password: string } | null
+type SubState = {
+  user: AdminUser
+  planId: string
+  status: SubscriptionStatus
+  periodEnd: string
+  notes: string
+} | null
 
 export default function AdminUsers() {
   const qc = useQueryClient()
   const { user: me } = useAuth()
   const usersQuery = useQuery({ queryKey: ['admin-users'], queryFn: adminListUsers })
+  const subsQuery = useQuery({ queryKey: ['admin-subscriptions'], queryFn: adminListSubscriptions })
+  const plansQuery = useQuery({ queryKey: ['plans'], queryFn: fetchPlans })
 
   const [error, setError] = useState('')
   const [create, setCreate] = useState<CreateState>({ open: false, fullName: '', email: '', password: '', role: 'user' })
   const [pwModal, setPwModal] = useState<PasswordState>(null)
+  const [subModal, setSubModal] = useState<SubState>(null)
   const [busy, setBusy] = useState(false)
 
   const users = usersQuery.data ?? []
+  const plans = (plansQuery.data ?? []).filter((p) => p.active)
+  const subsByUser = new Map<string, AdminSubscriptionRow>((subsQuery.data ?? []).map((s) => [s.user_id, s]))
 
   async function invalidate() {
     await qc.invalidateQueries({ queryKey: ['admin-users'] })
+    await qc.invalidateQueries({ queryKey: ['admin-subscriptions'] })
+  }
+
+  function openSubModal(u: AdminUser) {
+    const existing = subsByUser.get(u.id)
+    setError('')
+    setSubModal({
+      user: u,
+      planId: existing?.plan_id ?? '',
+      status: existing?.status ?? 'active',
+      periodEnd: existing?.current_period_end
+        ? new Date(existing.current_period_end).toISOString().slice(0, 16)
+        : '',
+      notes: existing?.notes ?? '',
+    })
+  }
+
+  async function onSaveSubscription(e: FormEvent) {
+    e.preventDefault()
+    if (!subModal) return
+    setBusy(true)
+    setError('')
+    try {
+      await adminSetSubscription({
+        userId: subModal.user.id,
+        planId: subModal.planId || null,
+        status: subModal.status,
+        periodEnd: subModal.periodEnd ? new Date(subModal.periodEnd).toISOString() : null,
+        notes: subModal.notes.trim() || null,
+      })
+      setSubModal(null)
+      await invalidate()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo guardar la suscripción')
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function onCreate(e: FormEvent) {
@@ -116,12 +172,15 @@ export default function AdminUsers() {
                 <th className="px-4 py-2.5">Usuario</th>
                 <th className="hidden px-4 py-2.5 sm:table-cell">Nombre</th>
                 <th className="px-4 py-2.5">Rol</th>
+                <th className="px-4 py-2.5">Plan</th>
                 <th className="hidden px-4 py-2.5 md:table-cell">Último acceso</th>
                 <th className="px-4 py-2.5 text-right">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {users.map((u) => (
+              {users.map((u) => {
+                const sub = subsByUser.get(u.id)
+                return (
                 <tr key={u.id}>
                   <td className="max-w-[220px] px-4 py-2.5">
                     <div className="flex items-center gap-2">
@@ -154,11 +213,45 @@ export default function AdminUsers() {
                       </Select>
                     )}
                   </td>
+                  <td className="px-4 py-2.5">
+                    {sub?.plan_id ? (
+                      <div className="flex flex-col items-start gap-0.5">
+                        <span className="flex items-center gap-1 text-xs font-medium text-slate-200">
+                          <Gem size={11} className="text-sky-400" /> {sub.plan_name ?? sub.plan_id}
+                        </span>
+                        {sub.status && (
+                          <span
+                            className={
+                              sub.status === 'active'
+                                ? 'text-[10px] text-emerald-400'
+                                : sub.status === 'trialing'
+                                  ? 'text-[10px] text-sky-400'
+                                  : 'text-[10px] text-red-400'
+                            }
+                          >
+                            {SUBSCRIPTION_STATUS_LABELS[sub.status]}
+                            {sub.current_period_end
+                              ? ` · ${new Date(sub.current_period_end).toLocaleDateString('es')}`
+                              : ''}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-slate-500">Sin plan</span>
+                    )}
+                  </td>
                   <td className="hidden px-4 py-2.5 text-slate-400 md:table-cell">
                     {u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleString('es') : 'Nunca'}
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="flex justify-end gap-1">
+                      <Button
+                        className="px-2 py-1 text-xs"
+                        title="Asignar o editar plan"
+                        onClick={() => openSubModal(u)}
+                      >
+                        <Gem size={13} />
+                      </Button>
                       <Button
                         className="px-2 py-1 text-xs"
                         title="Restablecer contraseña"
@@ -180,7 +273,8 @@ export default function AdminUsers() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -257,6 +351,84 @@ export default function AdminUsers() {
             </Button>
             <Button variant="primary" type="submit" disabled={busy}>
               {busy ? 'Guardando…' : 'Guardar'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Asignar / editar suscripción */}
+      <Modal
+        open={!!subModal}
+        onClose={() => setSubModal(null)}
+        title={`Plan de ${subModal?.user.email ?? ''}`}
+      >
+        <form className="space-y-3" onSubmit={onSaveSubscription}>
+          {plans.length === 0 ? (
+            <p className="rounded-lg border border-amber-500/40 bg-amber-950/30 p-3 text-xs text-amber-200">
+              No hay planes creados todavía. Créalos insertando filas en la tabla <code>super_plans</code> (SQL Editor)
+              y recarga esta página.
+            </p>
+          ) : (
+            <Field label="Plan">
+              <Select
+                value={subModal?.planId ?? ''}
+                onChange={(e) => setSubModal((s) => (s ? { ...s, planId: e.target.value } : s))}
+              >
+                <option value="">— Sin plan (acceso sin límites) —</option>
+                {plans.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                    {p.price_label ? ` (${p.price_label})` : ''}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+
+          {subModal?.planId && (
+            <>
+              <Field label="Estado">
+                <Select
+                  value={subModal.status}
+                  onChange={(e) => setSubModal((s) => (s ? { ...s, status: e.target.value as SubscriptionStatus } : s))}
+                >
+                  {SUBSCRIPTION_STATUSES.map((st) => (
+                    <option key={st} value={st}>
+                      {SUBSCRIPTION_STATUS_LABELS[st]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Vencimiento (opcional; vacío = sin vencimiento)">
+                <Input
+                  type="datetime-local"
+                  value={subModal.periodEnd}
+                  onChange={(e) => setSubModal((s) => (s ? { ...s, periodEnd: e.target.value } : s))}
+                />
+              </Field>
+              <Field label="Notas internas (opcional)">
+                <Input
+                  type="text"
+                  value={subModal.notes}
+                  onChange={(e) => setSubModal((s) => (s ? { ...s, notes: e.target.value } : s))}
+                  placeholder="P. ej.: pagó por transferencia el 01/09"
+                />
+              </Field>
+            </>
+          )}
+
+          {error && <p className="text-sm text-red-400">{error}</p>}
+          <p className="flex items-start gap-1.5 text-xs text-slate-500">
+            <UserRound size={13} className="mt-0.5 shrink-0" />
+            Sin plan asignado, el usuario conserva acceso completo (usuarios anteriores a las suscripciones).
+            Con plan vencido, su cuenta pasa a modo solo lectura automáticamente.
+          </p>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" onClick={() => setSubModal(null)}>
+              Cancelar
+            </Button>
+            <Button variant="primary" type="submit" disabled={busy}>
+              {busy ? 'Guardando…' : 'Guardar plan'}
             </Button>
           </div>
         </form>

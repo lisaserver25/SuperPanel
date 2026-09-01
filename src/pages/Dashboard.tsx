@@ -17,6 +17,7 @@ import {
   Search,
   Share2,
   Trash2,
+  TriangleAlert,
   Users,
 } from 'lucide-react'
 import {
@@ -36,6 +37,7 @@ import {
   saveUserCustomCategory,
 } from '../lib/categories'
 import { useAuth } from '../lib/auth'
+import { useMySubscription } from '../lib/billing'
 import { Badge, Button, EmptyState, Field, Input, Modal } from '../components/ui'
 import { useTabs } from '../lib/tabs'
 import PanelFormModal from '../components/PanelFormModal'
@@ -58,7 +60,7 @@ function emailPrefix(email: string): string {
 export default function Dashboard() {
   const { user } = useAuth()
   const qc = useQueryClient()
-  const { openPanelTab } = useTabs()
+  const { openPanelTab, openTab } = useTabs()
   const [search, setSearch] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [selectedSubcategory, setSelectedSubcategory] = useState<string>('all')
@@ -108,10 +110,13 @@ export default function Dashboard() {
     queryKey: ['pending-panel-shares'],
     queryFn: fetchPendingPanelShares,
   })
+  const subQuery = useMySubscription()
 
   const panels = panelsQuery.data ?? []
   const credentials = credsQuery.data ?? []
   const pendingShares = pendingSharesQuery.data ?? []
+  // Suscripción vencida → la base de datos bloquea la escritura (solo lectura)
+  const readOnly = subQuery.data?.read_only === true
 
   // IDs de paneles con credencial guardada
   const credPanelIds = useMemo(() => new Set(credentials.map((c) => c.panel_id)), [credentials])
@@ -652,6 +657,8 @@ export default function Dashboard() {
               setNewCatName('')
               setNewCatModalOpen(true)
             }}
+            disabled={readOnly}
+            title={readOnly ? 'Tu suscripción está caducada' : 'Crear una categoría'}
             className="flex-1 justify-center text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 sm:flex-none"
           >
             <FolderPlus size={15} className="text-sky-400" /> Categoría
@@ -662,7 +669,8 @@ export default function Dashboard() {
               setImporterCategory(selectedCategory !== 'all' ? selectedCategory : 'Plex')
               setImporterOpen(true)
             }}
-            title="Importar muchos paneles de golpe desde un listado"
+            disabled={readOnly}
+            title={readOnly ? 'Tu suscripción está caducada' : 'Importar muchos paneles de golpe desde un listado'}
           >
             <FileUp size={15} className="text-emerald-400" /> Importar
           </Button>
@@ -670,11 +678,35 @@ export default function Dashboard() {
             variant="primary"
             className="flex-1 justify-center sm:flex-none"
             onClick={() => openCreate(selectedCategory !== 'all' ? selectedCategory : 'General')}
+            disabled={readOnly}
+            title={readOnly ? 'Tu suscripción está caducada' : 'Añadir un panel'}
           >
             <Plus size={16} /> Añadir panel
           </Button>
         </div>
       </div>
+
+      {/* Aviso de suscripción vencida (solo lectura) */}
+      {readOnly && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/40 bg-red-950/30 p-3.5 text-sm">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <TriangleAlert className="shrink-0 text-red-400" size={18} />
+            <div className="min-w-0">
+              <p className="font-semibold text-red-100">Suscripción caducada: modo solo lectura</p>
+              <p className="text-xs text-red-200/70">
+                Puedes consultar tus paneles, pero no añadir ni editar. Renueva tu plan para recuperar el acceso completo.
+              </p>
+            </div>
+          </div>
+          <Button
+            variant="primary"
+            className="w-full justify-center text-xs sm:w-auto"
+            onClick={() => openTab({ id: 'plan', title: 'Mi plan', path: '/plan', closable: true })}
+          >
+            Ver mi plan
+          </Button>
+        </div>
+      )}
 
       {/* Invitaciones de paneles pendientes (aceptar/rechazar en línea) */}
       {pendingShares.length > 0 && (

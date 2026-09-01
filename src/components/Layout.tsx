@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ExternalLink,
   Folder,
+  Gem,
   KeyRound,
   LayoutGrid,
   LogOut,
@@ -15,10 +16,12 @@ import {
   PanelLeft,
   PanelTop,
   Search,
+  TriangleAlert,
   Users,
   X,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
+import { useMySubscription } from '../lib/billing'
 import { useTabs } from '../lib/tabs'
 import { useIsMobile } from '../lib/useIsMobile'
 import {
@@ -496,6 +499,7 @@ function MobileShell({
   previewBar,
   brand,
   appearance,
+  planAlert,
   navItems,
   panels,
   credPanelIds,
@@ -505,6 +509,7 @@ function MobileShell({
   previewBar: ReactNode
   brand: ReactNode
   appearance: ReactNode
+  planAlert: ReactNode
   navItems: { to: string; label: string; icon: typeof LayoutGrid; end?: boolean }[]
   panels: Panel[]
   credPanelIds: Set<string>
@@ -523,7 +528,10 @@ function MobileShell({
       <header className="z-40 shrink-0 border-b border-slate-800 bg-slate-900/95 pt-safe backdrop-blur">
         <div className="flex items-center gap-2 py-2 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))]">
           {brand}
-          <div className="ml-auto flex items-center gap-1.5">{appearance}</div>
+          <div className="ml-auto flex items-center gap-1.5">
+            {planAlert}
+            {appearance}
+          </div>
         </div>
         <div className="border-t border-slate-800/80 bg-slate-950/60 px-2 pb-1 pt-0.5">
           <TabStrip />
@@ -596,10 +604,13 @@ function MobileShell({
 export default function Layout() {
   const { user, profile, isSuperadmin } = useAuth()
   const { openPanelTab } = useTabs()
+  const subQuery = useMySubscription()
   const navigate = useNavigate()
   const qc = useQueryClient()
   const { setMode, setAccent } = useTheme()
   const isMobile = useIsMobile()
+  // Suscripción vencida → la BD bloquea la escritura (solo lectura)
+  const readOnly = subQuery.data?.read_only === true
 
   const settingsQuery = useQuery({ queryKey: ['super-settings'], queryFn: fetchBrandingSettings })
   const panelsQuery = useQuery({ queryKey: ['panels'], queryFn: fetchPanels })
@@ -667,11 +678,24 @@ export default function Layout() {
   const navItems: { to: string; label: string; icon: typeof LayoutGrid; end?: boolean }[] = [
     { to: '/', label: 'Mis paneles', icon: LayoutGrid, end: true },
     { to: '/vault', label: 'Accesos', icon: KeyRound },
+    { to: '/plan', label: 'Mi plan', icon: Gem },
   ]
   if (isSuperadmin) {
     navItems.push({ to: '/admin/users', label: 'Usuarios', icon: Users })
     navItems.push({ to: '/admin/branding', label: 'Personaliz.', icon: Palette })
   }
+
+  // Aviso de suscripción vencida (accesible en todas las navegaciones)
+  const planAlert = readOnly ? (
+    <NavLink
+      to="/plan"
+      className="flex shrink-0 items-center gap-1 rounded-md border border-red-500/50 bg-red-500/10 px-2 py-1 text-[11px] font-medium text-red-300 transition-colors hover:bg-red-500/20"
+      title="Suscripción caducada: modo solo lectura"
+    >
+      <TriangleAlert size={12} />
+      <span className="hidden sm:inline">Solo lectura</span>
+    </NavLink>
+  ) : null
 
   const brand = (
     <NavLink to="/" className="flex items-center gap-1.5 font-semibold shrink-0 text-sm">
@@ -703,6 +727,7 @@ export default function Layout() {
         previewBar={previewBar}
         brand={brand}
         appearance={appearance}
+        planAlert={planAlert}
         navItems={navItems}
         panels={panels}
         credPanelIds={credPanelIds}
@@ -725,6 +750,7 @@ export default function Layout() {
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-2 text-xs text-slate-400">
               <span className="hidden max-w-[160px] truncate xl:block">{user?.email}</span>
+              {planAlert}
               {appearance}
             </div>
           </div>
@@ -773,6 +799,7 @@ export default function Layout() {
           </nav>
 
           <div className="mt-auto space-y-2 border-t border-slate-800 p-2.5">
+            {planAlert}
             {appearance}
             <div className="flex items-center justify-between gap-2 text-xs text-slate-400">
               <span className="truncate" title={user?.email}>
@@ -825,6 +852,7 @@ export default function Layout() {
 
           <div className="ml-auto flex items-center gap-2 text-xs text-slate-400">
             <span className="hidden max-w-[180px] truncate lg:block">{user?.email}</span>
+            {planAlert}
             {appearance}
             <button className="btn-ghost text-xs px-2 py-1" onClick={handleLogout}>
               <LogOut size={13} /> <span className="hidden sm:inline">Salir</span>

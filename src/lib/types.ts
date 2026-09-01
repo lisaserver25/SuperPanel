@@ -82,6 +82,51 @@ export interface AdminUser {
   banned: boolean
 }
 
+export type SubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired'
+
+export interface Plan {
+  id: string
+  name: string
+  description: string | null
+  price_label: string | null
+  trial_days: number
+  max_panels: number | null
+  max_shares: number | null
+  can_share: boolean
+  can_use_vault: boolean
+  active: boolean
+  is_public: boolean
+  is_default: boolean
+  sort_order: number
+}
+
+export interface MySubscription {
+  has_subscription: boolean
+  read_only: boolean
+  status: SubscriptionStatus | null
+  current_period_end: string | null
+  plan: {
+    id: string
+    name: string
+    max_panels: number | null
+    max_shares: number | null
+    can_share: boolean
+    can_use_vault: boolean
+  } | null
+  usage: { panels_used: number; shares_used: number }
+}
+
+export interface AdminSubscriptionRow {
+  user_id: string
+  email: string
+  full_name: string | null
+  plan_id: string | null
+  plan_name: string | null
+  status: SubscriptionStatus | null
+  current_period_end: string | null
+  notes: string | null
+}
+
 export type CollaborationStatus = 'pending' | 'accepted' | 'rejected' | 'canceled'
 
 export interface Collaboration {

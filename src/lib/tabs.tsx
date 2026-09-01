@@ -96,6 +96,12 @@ export function TabsProvider({ children }: { children: ReactNode }) {
         setTabs((prev) => [...prev, { id: tabId, title: 'Accesos', path: '/vault', closable: true }])
       }
       setActiveTabId(tabId)
+    } else if (pathname === '/plan') {
+      const tabId = 'plan'
+      if (!tabs.some((t) => t.id === tabId)) {
+        setTabs((prev) => [...prev, { id: tabId, title: 'Mi plan', path: '/plan', closable: true }])
+      }
+      setActiveTabId(tabId)
     } else if (pathname === '/admin/users') {
       const tabId = 'admin-users'
       if (!tabs.some((t) => t.id === tabId)) {

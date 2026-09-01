@@ -10,6 +10,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import PanelFrame from './pages/PanelFrame'
 import Vault from './pages/Vault'
+import Subscription from './pages/Subscription'
 import AdminUsers from './pages/AdminUsers'
 import AdminBranding from './pages/AdminBranding'
 
@@ -48,6 +49,7 @@ export default function App() {
                     <Route index element={<Dashboard />} />
                     <Route path="panels/:id" element={<PanelFrame />} />
                     <Route path="vault" element={<Vault />} />
+                    <Route path="plan" element={<Subscription />} />
                     <Route
                       path="admin/users"
                       element={
